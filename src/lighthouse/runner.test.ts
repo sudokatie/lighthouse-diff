@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import lighthouse from 'lighthouse';
 
 // Mock puppeteer and lighthouse
 vi.mock('puppeteer', () => ({
@@ -55,6 +56,25 @@ describe('runAudit', () => {
     const result = await runAudit('https://example.com');
     
     expect(result.pwa).toBe(null);
+  });
+
+  it('uses default timeout of 60000ms', async () => {
+    await runAudit('https://example.com');
+    
+    const lighthouseMock = vi.mocked(lighthouse);
+    const config = lighthouseMock.mock.calls[0][2] as { settings: { maxWaitForLoad: number } };
+    expect(config.settings.maxWaitForLoad).toBe(60000);
+  });
+
+  it('uses custom timeout when provided', async () => {
+    await closeBrowser();
+    vi.clearAllMocks();
+    
+    await runAudit('https://example.com', { timeout: 30000 });
+    
+    const lighthouseMock = vi.mocked(lighthouse);
+    const config = lighthouseMock.mock.calls[0][2] as { settings: { maxWaitForLoad: number } };
+    expect(config.settings.maxWaitForLoad).toBe(30000);
   });
 });
 

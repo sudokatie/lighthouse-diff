@@ -32,10 +32,13 @@ export async function runAudit(
   const browserInstance = await getBrowser();
   const port = new URL(browserInstance.wsEndpoint()).port;
 
+  const timeout = options.timeout ?? 60000;
+
   const config = {
     extends: 'lighthouse:default',
     settings: {
       formFactor: options.formFactor ?? 'desktop',
+      maxWaitForLoad: timeout,
       throttling: options.throttling === true ? undefined : {
         rttMs: 0,
         throughputKbps: 0,
