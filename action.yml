@@ -1,0 +1,122 @@
+name: 'Lighthouse Diff'
+description: 'Compare Lighthouse performance scores between commits or URLs'
+author: 'Katie'
+
+branding:
+  icon: 'activity'
+  color: 'orange'
+
+inputs:
+  baseline-url:
+    description: 'Baseline URL to compare against'
+    required: false
+  current-url:
+    description: 'Current URL to test'
+    required: false
+  base-ref:
+    description: 'Base git ref for comparison (branch, tag, or commit)'
+    required: false
+  head-ref:
+    description: 'Head git ref for comparison (defaults to current state)'
+    required: false
+  serve-path:
+    description: 'Path to serve for git comparisons'
+    required: false
+    default: '.'
+  port:
+    description: 'Port for local server'
+    required: false
+  runs:
+    description: 'Number of Lighthouse runs to average'
+    required: false
+    default: '1'
+  device:
+    description: 'Device emulation (mobile or desktop)'
+    required: false
+    default: 'mobile'
+  max-regression:
+    description: 'Maximum allowed score regression'
+    required: false
+  min-score:
+    description: 'Minimum required score for all categories'
+    required: false
+  format:
+    description: 'Output format (terminal, json, markdown, github)'
+    required: false
+    default: 'github'
+  fail-on-regression:
+    description: 'Fail the workflow if regression detected'
+    required: false
+    default: 'true'
+  config:
+    description: 'Path to config file'
+    required: false
+
+outputs:
+  performance:
+    description: 'Current performance score'
+  accessibility:
+    description: 'Current accessibility score'
+  best-practices:
+    description: 'Current best practices score'
+  seo:
+    description: 'Current SEO score'
+  performance-delta:
+    description: 'Performance score change'
+  accessibility-delta:
+    description: 'Accessibility score change'
+  best-practices-delta:
+    description: 'Best practices score change'
+  seo-delta:
+    description: 'SEO score change'
+  passed:
+    description: 'Whether all thresholds passed'
+  report:
+    description: 'Full comparison report'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      shell: bash
+      run: npm install -g lighthouse-diff
+      
+    - name: Run URL comparison
+      if: inputs.baseline-url && inputs.current-url
+      shell: bash
+      id: url-compare
+      run: |
+        lighthouse-diff compare \
+          "${{ inputs.baseline-url }}" \
+          "${{ inputs.current-url }}" \
+          --format "${{ inputs.format }}" \
+          --runs "${{ inputs.runs }}" \
+          --device "${{ inputs.device }}" \
+          ${{ inputs.max-regression && format('--max-regression {0}', inputs.max-regression) || '' }} \
+          ${{ inputs.min-score && format('--threshold {0}', inputs.min-score) || '' }} \
+          ${{ inputs.config && format('--config {0}', inputs.config) || '' }} \
+          ${{ inputs.fail-on-regression == 'true' && '--ci' || '' }} \
+          > $GITHUB_STEP_SUMMARY
+          
+    - name: Run git comparison
+      if: inputs.base-ref
+      shell: bash
+      id: git-compare
+      run: |
+        lighthouse-diff git "${{ inputs.base-ref }}" \
+          ${{ inputs.head-ref && format('--head {0}', inputs.head-ref) || '' }} \
+          --path "${{ inputs.serve-path }}" \
+          ${{ inputs.port && format('--port {0}', inputs.port) || '' }} \
+          --format "${{ inputs.format }}" \
+          --runs "${{ inputs.runs }}" \
+          --device "${{ inputs.device }}" \
+          ${{ inputs.max-regression && format('--max-regression {0}', inputs.max-regression) || '' }} \
+          ${{ inputs.min-score && format('--threshold {0}', inputs.min-score) || '' }} \
+          ${{ inputs.config && format('--config {0}', inputs.config) || '' }} \
+          ${{ inputs.fail-on-regression == 'true' && '--ci' || '' }} \
+          > $GITHUB_STEP_SUMMARY
