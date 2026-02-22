@@ -1,12 +1,10 @@
 import { spawn, ChildProcess } from 'child_process';
 import { createServer } from 'http';
-import { join, resolve } from 'path';
-import { readFileSync, existsSync } from 'fs';
 
 export interface ServerOptions {
+  command?: string;
   port?: number;
   host?: string;
-  path?: string;
   timeout?: number;
 }
 
@@ -17,9 +15,9 @@ export interface ServerHandle {
 }
 
 /**
- * Wait for server to be ready
+ * Wait for server to respond with 2xx status
  */
-async function waitForReady(url: string, timeout: number = 30000): Promise<void> {
+export async function waitForReady(url: string, timeout: number = 30000): Promise<void> {
   const start = Date.now();
   
   while (Date.now() - start < timeout) {
@@ -41,7 +39,7 @@ async function waitForReady(url: string, timeout: number = 30000): Promise<void>
  * Find an available port
  */
 async function findPort(start: number = 3000): Promise<number> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const server = createServer();
     server.listen(0, () => {
       const addr = server.address();
@@ -53,37 +51,54 @@ async function findPort(start: number = 3000): Promise<number> {
 }
 
 /**
- * Start a static file server
+ * Start a server using the provided command
  */
 export async function startServer(options: ServerOptions = {}): Promise<ServerHandle> {
   const port = options.port ?? await findPort();
   const host = options.host ?? 'localhost';
-  const servePath = options.path ?? process.cwd();
+  const command = options.command ?? 'npm run dev';
   const timeout = options.timeout ?? 30000;
   
-  // Use npx serve for simple static serving
-  const proc = spawn('npx', ['serve', '-l', String(port), '-s', servePath], {
+  // Parse command
+  const parts = command.split(' ');
+  const cmd = parts[0];
+  const args = parts.slice(1);
+  
+  // Set PORT env var for common dev servers
+  const env = { ...process.env, PORT: String(port) };
+  
+  const proc = spawn(cmd, args, {
     stdio: 'pipe',
     detached: false,
+    env,
+    shell: true,
   });
   
   const url = `http://${host}:${port}`;
+  
+  // Capture stderr for error reporting
+  let stderr = '';
+  proc.stderr?.on('data', (data) => {
+    stderr += data.toString();
+  });
   
   // Wait for server to be ready
   try {
     await waitForReady(url, timeout);
   } catch (error) {
     proc.kill('SIGTERM');
-    throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}\nServer stderr: ${stderr.slice(-500)}`);
   }
   
   return {
     url,
     port,
     stop: async () => {
+      // Send SIGTERM first
       proc.kill('SIGTERM');
       
-      // Give it 5 seconds then force kill
+      // Wait up to 5 seconds, then SIGKILL
       await new Promise<void>((resolve) => {
         const timer = setTimeout(() => {
           proc.kill('SIGKILL');
@@ -112,17 +127,5 @@ export async function withServer<T>(
     return await fn(server.url);
   } finally {
     await server.stop();
-  }
-}
-
-/**
- * Check if serve is available
- */
-export function hasServe(): boolean {
-  try {
-    const proc = spawn('npx', ['serve', '--version'], { stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
   }
 }

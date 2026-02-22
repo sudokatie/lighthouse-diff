@@ -1,102 +1,72 @@
 import { describe, it, expect } from 'vitest';
-import {
-  formatComparison,
-  formatScores,
-  formatValidation,
-  parseComparison,
-} from './json.js';
-import type { ComparisonResult, LighthouseScores } from '../types.js';
+import { formatJson, parseJson } from './json.js';
+import type { ScoreDeltas, ThresholdResult } from '../types.js';
 
-const comparisonResult: ComparisonResult = {
-  baseline: {
-    url: 'https://example.com/old',
-    scores: { performance: 80, accessibility: 90, bestPractices: 85, seo: 95 },
-    timestamp: new Date('2024-01-15T10:00:00Z'),
-  },
-  current: {
-    url: 'https://example.com/new',
-    scores: { performance: 85, accessibility: 92, bestPractices: 87, seo: 95 },
-    timestamp: new Date('2024-01-15T11:00:00Z'),
-  },
-  delta: { performance: 5, accessibility: 2, bestPractices: 2, seo: 0 },
-  validation: { passed: true, failures: [] },
+const mockDeltas: ScoreDeltas = {
+  baselineUrl: 'https://baseline.com',
+  currentUrl: 'https://current.com',
+  timestamp: '2024-01-01T00:00:00.000Z',
+  deltas: [
+    { category: 'performance', baseline: 80, current: 85, delta: 5, direction: 'improved' },
+    { category: 'accessibility', baseline: 90, current: 88, delta: -2, direction: 'regressed' },
+  ],
 };
 
-describe('formatComparison', () => {
+const passedResult: ThresholdResult = { passed: true, failures: [] };
+const failedResult: ThresholdResult = {
+  passed: false,
+  failures: [{ category: 'performance', reason: 'below-threshold', expected: 90, actual: 85 }],
+};
+
+describe('formatJson', () => {
   it('returns valid JSON', () => {
-    const json = formatComparison(comparisonResult);
+    const json = formatJson(mockDeltas, passedResult);
     expect(() => JSON.parse(json)).not.toThrow();
   });
 
-  it('includes all fields', () => {
-    const json = formatComparison(comparisonResult);
+  it('includes version', () => {
+    const json = formatJson(mockDeltas, passedResult);
     const parsed = JSON.parse(json);
-
-    expect(parsed.baseline.url).toBe('https://example.com/old');
-    expect(parsed.current.url).toBe('https://example.com/new');
-    expect(parsed.delta.performance).toBe(5);
-    expect(parsed.validation.passed).toBe(true);
+    expect(parsed.version).toBe('1.0.0');
   });
 
-  it('formats timestamps as ISO strings', () => {
-    const json = formatComparison(comparisonResult);
+  it('includes URLs', () => {
+    const json = formatJson(mockDeltas, passedResult);
     const parsed = JSON.parse(json);
+    expect(parsed.baselineUrl).toBe('https://baseline.com');
+    expect(parsed.currentUrl).toBe('https://current.com');
+  });
 
-    expect(parsed.baseline.timestamp).toContain('2024-01-15');
-    expect(parsed.current.timestamp).toContain('2024-01-15');
+  it('includes scores array', () => {
+    const json = formatJson(mockDeltas, passedResult);
+    const parsed = JSON.parse(json);
+    expect(parsed.scores).toHaveLength(2);
+    expect(parsed.scores[0].category).toBe('performance');
+  });
+
+  it('includes thresholds object', () => {
+    const json = formatJson(mockDeltas, passedResult);
+    const parsed = JSON.parse(json);
+    expect(parsed.thresholds.passed).toBe(true);
+  });
+
+  it('includes failures when failed', () => {
+    const json = formatJson(mockDeltas, failedResult);
+    const parsed = JSON.parse(json);
+    expect(parsed.thresholds.passed).toBe(false);
+    expect(parsed.thresholds.failures).toHaveLength(1);
+  });
+
+  it('is pretty-printed', () => {
+    const json = formatJson(mockDeltas, passedResult);
+    expect(json).toContain('\n');
   });
 });
 
-describe('formatScores', () => {
-  it('returns valid JSON', () => {
-    const scores: LighthouseScores = {
-      performance: 80,
-      accessibility: 90,
-      bestPractices: 85,
-      seo: 95,
-    };
-    const json = formatScores(scores, 'https://example.com');
-
-    expect(() => JSON.parse(json)).not.toThrow();
-  });
-
-  it('includes URL and scores', () => {
-    const scores: LighthouseScores = {
-      performance: 80,
-      accessibility: 90,
-      bestPractices: 85,
-      seo: 95,
-    };
-    const json = formatScores(scores, 'https://example.com');
-    const parsed = JSON.parse(json);
-
-    expect(parsed.url).toBe('https://example.com');
-    expect(parsed.scores.performance).toBe(80);
-  });
-});
-
-describe('formatValidation', () => {
-  it('returns valid JSON', () => {
-    const json = formatValidation({ passed: true, failures: [] });
-    expect(() => JSON.parse(json)).not.toThrow();
-  });
-});
-
-describe('parseComparison', () => {
-  it('round-trips through format and parse', () => {
-    const json = formatComparison(comparisonResult);
-    const parsed = parseComparison(json);
-
-    expect(parsed.baseline.url).toBe(comparisonResult.baseline.url);
-    expect(parsed.current.scores.performance).toBe(85);
-    expect(parsed.delta.performance).toBe(5);
-  });
-
-  it('converts timestamps back to Date objects', () => {
-    const json = formatComparison(comparisonResult);
-    const parsed = parseComparison(json);
-
-    expect(parsed.baseline.timestamp).toBeInstanceOf(Date);
-    expect(parsed.current.timestamp).toBeInstanceOf(Date);
+describe('parseJson', () => {
+  it('parses JSON output', () => {
+    const json = formatJson(mockDeltas, passedResult);
+    const parsed = parseJson(json);
+    expect(parsed.version).toBe('1.0.0');
   });
 });

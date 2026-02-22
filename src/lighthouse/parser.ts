@@ -1,129 +1,117 @@
-import type { LighthouseScores } from '../types.js';
+import type { CategoryScores, LighthouseResult } from '../types.js';
 
 /**
- * Raw Lighthouse result structure (subset we care about)
+ * Parse a Lighthouse Result (LHR) JSON into our structure
  */
-export interface LighthouseResult {
-  categories: {
-    performance?: { score: number | null };
-    accessibility?: { score: number | null };
-    'best-practices'?: { score: number | null };
-    seo?: { score: number | null };
-    pwa?: { score: number | null };
-  };
-  fetchTime?: string;
-  requestedUrl?: string;
-  finalUrl?: string;
-}
+export function parseResult(lhr: unknown): LighthouseResult {
+  if (!lhr || typeof lhr !== 'object') {
+    throw new Error('Invalid Lighthouse result: expected object');
+  }
 
-/**
- * Parse Lighthouse JSON result into scores
- */
-export function parseResult(result: LighthouseResult): LighthouseScores {
-  const categories = result.categories;
+  const result = lhr as Record<string, unknown>;
+
+  if (!result.categories || typeof result.categories !== 'object') {
+    throw new Error('Invalid Lighthouse result: missing categories');
+  }
+
+  const categories = result.categories as Record<string, unknown>;
+  const scores = extractScores(categories);
 
   return {
-    performance: normalizeScore(categories.performance?.score),
-    accessibility: normalizeScore(categories.accessibility?.score),
-    bestPractices: normalizeScore(categories['best-practices']?.score),
-    seo: normalizeScore(categories.seo?.score),
-    pwa: categories.pwa?.score !== undefined
-      ? normalizeScore(categories.pwa.score)
-      : undefined,
+    url: typeof result.finalUrl === 'string' ? result.finalUrl : 
+         typeof result.requestedUrl === 'string' ? result.requestedUrl : '',
+    fetchTime: typeof result.fetchTime === 'string' ? result.fetchTime : new Date().toISOString(),
+    scores,
   };
 }
 
 /**
- * Normalize score from 0-1 to 0-100
+ * Extract scores from categories object
  */
-export function normalizeScore(score: number | null | undefined): number {
-  if (score === null || score === undefined) {
-    return 0;
+function extractScores(categories: Record<string, unknown>): CategoryScores {
+  return {
+    performance: extractScore(categories.performance),
+    accessibility: extractScore(categories.accessibility),
+    'best-practices': extractScore(categories['best-practices']),
+    seo: extractScore(categories.seo),
+    pwa: extractScore(categories.pwa),
+  };
+}
+
+/**
+ * Extract a single score, converting from 0-1 to 0-100
+ */
+function extractScore(category: unknown): number | null {
+  if (!category || typeof category !== 'object') {
+    return null;
   }
-  // Lighthouse returns 0-1, convert to 0-100
+
+  const cat = category as Record<string, unknown>;
+  const score = cat.score;
+
+  if (score === null || score === undefined) {
+    return null;
+  }
+
+  if (typeof score !== 'number') {
+    return null;
+  }
+
+  // Lighthouse scores are 0-1, convert to 0-100
   return Math.round(score * 100);
 }
 
 /**
- * Parse JSON string into Lighthouse result
+ * Normalize a score to 0-100 integer
  */
-export function parseJSON(json: string): LighthouseResult {
-  try {
-    return JSON.parse(json) as LighthouseResult;
-  } catch (error) {
-    throw new Error(`Invalid Lighthouse JSON: ${error}`);
+export function normalizeScore(score: number): number {
+  // If score is already 0-100 range
+  if (score > 1) {
+    return Math.round(score);
   }
+  // Convert from 0-1 to 0-100
+  return Math.round(score * 100);
 }
 
 /**
- * Parse Lighthouse result from file content
+ * Average multiple results
  */
-export function parseFile(content: string): LighthouseScores {
-  const result = parseJSON(content);
-  return parseResult(result);
-}
-
-/**
- * Check if result has all required categories
- */
-export function hasRequiredCategories(result: LighthouseResult): boolean {
-  const categories = result.categories;
-  return (
-    categories.performance !== undefined &&
-    categories.accessibility !== undefined &&
-    categories['best-practices'] !== undefined &&
-    categories.seo !== undefined
-  );
-}
-
-/**
- * Get URL from result
- */
-export function getUrl(result: LighthouseResult): string {
-  return result.finalUrl || result.requestedUrl || 'unknown';
-}
-
-/**
- * Get timestamp from result
- */
-export function getTimestamp(result: LighthouseResult): Date {
-  if (result.fetchTime) {
-    return new Date(result.fetchTime);
-  }
-  return new Date();
-}
-
-/**
- * Average multiple Lighthouse results (for multiple runs)
- */
-export function averageResults(results: LighthouseScores[]): LighthouseScores {
+export function averageResults(results: LighthouseResult[]): CategoryScores {
   if (results.length === 0) {
-    throw new Error('No results to average');
+    return {
+      performance: null,
+      accessibility: null,
+      'best-practices': null,
+      seo: null,
+      pwa: null,
+    };
   }
 
-  if (results.length === 1) {
-    return results[0];
-  }
+  const categories: (keyof CategoryScores)[] = [
+    'performance',
+    'accessibility',
+    'best-practices',
+    'seo',
+    'pwa',
+  ];
 
-  const sum = results.reduce(
-    (acc, r) => ({
-      performance: acc.performance + r.performance,
-      accessibility: acc.accessibility + r.accessibility,
-      bestPractices: acc.bestPractices + r.bestPractices,
-      seo: acc.seo + r.seo,
-      pwa: r.pwa !== undefined && acc.pwa !== undefined
-        ? acc.pwa + r.pwa
-        : undefined,
-    }),
-    { performance: 0, accessibility: 0, bestPractices: 0, seo: 0, pwa: results[0].pwa !== undefined ? 0 : undefined }
-  );
-
-  const count = results.length;
-  return {
-    performance: Math.round(sum.performance / count),
-    accessibility: Math.round(sum.accessibility / count),
-    bestPractices: Math.round(sum.bestPractices / count),
-    seo: Math.round(sum.seo / count),
-    pwa: sum.pwa !== undefined ? Math.round(sum.pwa / count) : undefined,
+  const averaged: CategoryScores = {
+    performance: null,
+    accessibility: null,
+    'best-practices': null,
+    seo: null,
+    pwa: null,
   };
+
+  for (const category of categories) {
+    const scores = results
+      .map(r => r.scores[category])
+      .filter((s): s is number => s !== null);
+
+    if (scores.length > 0) {
+      averaged[category] = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    }
+  }
+
+  return averaged;
 }

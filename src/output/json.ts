@@ -1,98 +1,64 @@
-import type { ComparisonResult, LighthouseScores, ValidationResult } from '../types.js';
+import type { ScoreDeltas, ThresholdResult } from '../types.js';
 
+/**
+ * JSON output structure
+ */
 interface JsonOutput {
-  baseline: {
-    url: string;
-    scores: LighthouseScores;
-    timestamp: string;
-  };
-  current: {
-    url: string;
-    scores: LighthouseScores;
-    timestamp: string;
-  };
-  delta: {
-    performance: number;
-    accessibility: number;
-    bestPractices: number;
-    seo: number;
-    pwa?: number;
-  };
-  validation: {
+  version: string;
+  timestamp: string;
+  baselineUrl: string;
+  currentUrl: string;
+  scores: Array<{
+    category: string;
+    baseline: number | null;
+    current: number | null;
+    delta: number | null;
+    direction: string;
+  }>;
+  thresholds: {
     passed: boolean;
     failures: Array<{
       category: string;
-      type: string;
-      message: string;
+      reason: string;
+      expected: number;
       actual: number;
-      threshold: number;
     }>;
   };
 }
 
 /**
- * Format comparison result as JSON
+ * Format comparison as JSON
  */
-export function formatComparison(result: ComparisonResult): string {
+export function formatJson(deltas: ScoreDeltas, thresholdResult: ThresholdResult): string {
   const output: JsonOutput = {
-    baseline: {
-      url: result.baseline.url,
-      scores: result.baseline.scores,
-      timestamp: result.baseline.timestamp.toISOString(),
+    version: '1.0.0',
+    timestamp: deltas.timestamp,
+    baselineUrl: deltas.baselineUrl,
+    currentUrl: deltas.currentUrl,
+    scores: deltas.deltas.map(d => ({
+      category: d.category,
+      baseline: d.baseline,
+      current: d.current,
+      delta: d.delta,
+      direction: d.direction,
+    })),
+    thresholds: {
+      passed: thresholdResult.passed,
+      failures: thresholdResult.failures.map(f => ({
+        category: f.category,
+        reason: f.reason,
+        expected: f.expected,
+        actual: f.actual,
+      })),
     },
-    current: {
-      url: result.current.url,
-      scores: result.current.scores,
-      timestamp: result.current.timestamp.toISOString(),
-    },
-    delta: result.delta,
-    validation: result.validation,
   };
 
   return JSON.stringify(output, null, 2);
 }
 
 /**
- * Format just scores as JSON
+ * Parse JSON output back to structure
  */
-export function formatScores(scores: LighthouseScores, url: string): string {
-  return JSON.stringify({ url, scores }, null, 2);
-}
-
-/**
- * Format validation result as JSON
- */
-export function formatValidation(result: ValidationResult): string {
-  return JSON.stringify(result, null, 2);
-}
-
-/**
- * Parse JSON output back to comparison result
- */
-export function parseComparison(json: string): ComparisonResult {
-  const data = JSON.parse(json) as JsonOutput;
-
-  return {
-    baseline: {
-      url: data.baseline.url,
-      scores: data.baseline.scores,
-      timestamp: new Date(data.baseline.timestamp),
-    },
-    current: {
-      url: data.current.url,
-      scores: data.current.scores,
-      timestamp: new Date(data.current.timestamp),
-    },
-    delta: data.delta,
-    validation: {
-      passed: data.validation.passed,
-      failures: data.validation.failures.map(f => ({
-        category: f.category as keyof LighthouseScores,
-        type: f.type as 'regression' | 'minScore' | 'absoluteMin',
-        message: f.message,
-        actual: f.actual,
-        threshold: f.threshold,
-      })),
-    },
-  };
+export function parseJson(json: string): JsonOutput {
+  return JSON.parse(json);
 }

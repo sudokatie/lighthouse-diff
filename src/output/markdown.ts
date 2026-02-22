@@ -1,151 +1,72 @@
-import type { ComparisonResult, LighthouseScores, ScoreDelta } from '../types.js';
-import { formatDelta } from '../diff/calculator.js';
-
-const CATEGORY_NAMES: Record<keyof LighthouseScores, string> = {
-  performance: 'Performance',
-  accessibility: 'Accessibility',
-  bestPractices: 'Best Practices',
-  seo: 'SEO',
-  pwa: 'PWA',
-};
+import type { ScoreDeltas, ScoreDelta, ThresholdResult } from '../types.js';
+import { formatDelta, getSummary } from '../diff/calculator.js';
 
 /**
- * Get emoji for score
+ * Get emoji for delta direction
  */
-function scoreEmoji(score: number): string {
-  if (score >= 90) return '🟢';
-  if (score >= 50) return '🟡';
-  return '🔴';
+export function deltaEmoji(delta: ScoreDelta): string {
+  if (delta.direction === 'improved') return '✅';
+  if (delta.direction === 'regressed') return '⚠️';
+  return '';
 }
 
 /**
- * Get emoji for delta
+ * Format comparison as Markdown
  */
-function deltaEmoji(delta: number): string {
-  if (delta > 0) return '📈';
-  if (delta < 0) return '📉';
-  return '➖';
-}
-
-/**
- * Format comparison result as Markdown
- */
-export function formatComparison(result: ComparisonResult): string {
+export function formatMarkdown(deltas: ScoreDeltas, thresholdResult: ThresholdResult): string {
   const lines: string[] = [];
-
+  
   // Header
-  lines.push('# Lighthouse Score Comparison');
+  lines.push('## Lighthouse Comparison');
   lines.push('');
-
+  lines.push(`**Baseline:** ${deltas.baselineUrl}`);
+  lines.push(`**Current:** ${deltas.currentUrl}`);
+  lines.push('');
+  
+  // Table
+  lines.push('| Category | Baseline | Current | Delta | |');
+  lines.push('|----------|----------|---------|-------|---|');
+  
+  for (const delta of deltas.deltas) {
+    const baseline = delta.baseline !== null ? delta.baseline.toString() : 'N/A';
+    const current = delta.current !== null ? delta.current.toString() : 'N/A';
+    const deltaStr = formatDelta(delta.delta);
+    const emoji = deltaEmoji(delta);
+    
+    lines.push(`| ${delta.category} | ${baseline} | ${current} | ${deltaStr} | ${emoji} |`);
+  }
+  
+  lines.push('');
+  
   // Summary
-  if (result.validation.passed) {
+  const summary = getSummary(deltas.deltas);
+  if (thresholdResult.passed) {
     lines.push('✅ **All thresholds passed**');
   } else {
     lines.push('❌ **Threshold failures detected**');
-  }
-  lines.push('');
-
-  // URLs
-  lines.push('## URLs');
-  lines.push(`- **Baseline:** ${result.baseline.url}`);
-  lines.push(`- **Current:** ${result.current.url}`);
-  lines.push('');
-
-  // Scores table
-  lines.push('## Scores');
-  lines.push('');
-  lines.push('| Category | Baseline | Current | Delta |');
-  lines.push('|----------|----------|---------|-------|');
-
-  const categories: (keyof LighthouseScores)[] = [
-    'performance',
-    'accessibility',
-    'bestPractices',
-    'seo',
-  ];
-
-  if (result.baseline.scores.pwa !== undefined) {
-    categories.push('pwa');
-  }
-
-  for (const category of categories) {
-    const baseline = result.baseline.scores[category];
-    const current = result.current.scores[category];
-    const delta = result.delta[category];
-
-    if (baseline !== undefined && current !== undefined && delta !== undefined) {
-      const baseEmoji = scoreEmoji(baseline);
-      const currEmoji = scoreEmoji(current);
-      const dEmoji = deltaEmoji(delta);
-
-      lines.push(
-        `| ${CATEGORY_NAMES[category]} | ${baseEmoji} ${baseline} | ${currEmoji} ${current} | ${dEmoji} ${formatDelta(delta)} |`
-      );
-    }
-  }
-
-  lines.push('');
-
-  // Failures
-  if (!result.validation.passed) {
-    lines.push('## Failures');
     lines.push('');
-    for (const failure of result.validation.failures) {
-      lines.push(`- ❌ ${failure.message}`);
-    }
+    lines.push('<details>');
+    lines.push('<summary>View failures</summary>');
     lines.push('');
+    
+    for (const failure of thresholdResult.failures) {
+      if (failure.reason === 'below-threshold') {
+        lines.push(`- **${failure.category}**: Score ${failure.actual} is below minimum ${failure.expected}`);
+      } else {
+        lines.push(`- **${failure.category}**: Regressed by ${failure.actual} points (max allowed: ${failure.expected})`);
+      }
+    }
+    
+    lines.push('');
+    lines.push('</details>');
   }
-
-  return lines.join('\n');
-}
-
-/**
- * Format just scores as Markdown
- */
-export function formatScores(scores: LighthouseScores, url: string): string {
-  const lines: string[] = [];
-
-  lines.push(`# Lighthouse Scores`);
+  
   lines.push('');
-  lines.push(`**URL:** ${url}`);
-  lines.push('');
-  lines.push('| Category | Score |');
-  lines.push('|----------|-------|');
-
-  lines.push(`| Performance | ${scoreEmoji(scores.performance)} ${scores.performance} |`);
-  lines.push(`| Accessibility | ${scoreEmoji(scores.accessibility)} ${scores.accessibility} |`);
-  lines.push(`| Best Practices | ${scoreEmoji(scores.bestPractices)} ${scores.bestPractices} |`);
-  lines.push(`| SEO | ${scoreEmoji(scores.seo)} ${scores.seo} |`);
-
-  if (scores.pwa !== undefined) {
-    lines.push(`| PWA | ${scoreEmoji(scores.pwa)} ${scores.pwa} |`);
+  
+  // Average delta
+  if (summary.avgDelta !== null) {
+    lines.push(`*Average delta: ${formatDelta(summary.avgDelta)}*`);
   }
-
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-/**
- * Format for GitHub PR comment
- */
-export function formatPRComment(result: ComparisonResult): string {
-  const lines: string[] = [];
-
-  // Header with status
-  if (result.validation.passed) {
-    lines.push('## ✅ Lighthouse Check Passed');
-  } else {
-    lines.push('## ❌ Lighthouse Check Failed');
-  }
-  lines.push('');
-
-  // Compact table
-  lines.push('<details>');
-  lines.push('<summary>Score Details</summary>');
-  lines.push('');
-  lines.push(formatComparison(result));
-  lines.push('</details>');
-
+  
   return lines.join('\n');
 }

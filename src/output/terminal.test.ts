@@ -1,167 +1,137 @@
 import { describe, it, expect } from 'vitest';
 import {
-  formatComparison,
-  formatScores,
-  formatValidation,
-  formatMessage,
+  colorScore,
+  colorDelta,
+  statusIcon,
+  formatTable,
+  formatSummary,
+  formatTerminal,
 } from './terminal.js';
-import type { ComparisonResult, LighthouseScores, ValidationResult } from '../types.js';
+import type { ScoreDeltas, ThresholdResult } from '../types.js';
 
-const baselineScores: LighthouseScores = {
-  performance: 80,
-  accessibility: 90,
-  bestPractices: 85,
-  seo: 95,
+const mockDeltas: ScoreDeltas = {
+  baselineUrl: 'https://baseline.com',
+  currentUrl: 'https://current.com',
+  timestamp: '2024-01-01T00:00:00.000Z',
+  deltas: [
+    { category: 'performance', baseline: 80, current: 85, delta: 5, direction: 'improved' },
+    { category: 'accessibility', baseline: 90, current: 88, delta: -2, direction: 'regressed' },
+    { category: 'best-practices', baseline: 85, current: 85, delta: 0, direction: 'unchanged' },
+    { category: 'seo', baseline: 95, current: 95, delta: 0, direction: 'unchanged' },
+    { category: 'pwa', baseline: null, current: null, delta: null, direction: 'unchanged' },
+  ],
 };
 
-const currentScores: LighthouseScores = {
-  performance: 85,
-  accessibility: 92,
-  bestPractices: 87,
-  seo: 95,
+const passedResult: ThresholdResult = { passed: true, failures: [] };
+const failedResult: ThresholdResult = {
+  passed: false,
+  failures: [{ category: 'performance', reason: 'below-threshold', expected: 90, actual: 85 }],
 };
 
-const comparisonResult: ComparisonResult = {
-  baseline: {
-    url: 'https://example.com/old',
-    scores: baselineScores,
-    timestamp: new Date(),
-  },
-  current: {
-    url: 'https://example.com/new',
-    scores: currentScores,
-    timestamp: new Date(),
-  },
-  delta: {
-    performance: 5,
-    accessibility: 2,
-    bestPractices: 2,
-    seo: 0,
-  },
-  validation: {
-    passed: true,
-    failures: [],
-  },
-};
+describe('colorScore', () => {
+  it('returns green for high scores', () => {
+    const result = colorScore(95);
+    expect(result).toContain('95');
+  });
 
-describe('formatComparison', () => {
+  it('returns red for low scores', () => {
+    const result = colorScore(40);
+    expect(result).toContain('40');
+  });
+
+  it('returns N/A for null', () => {
+    const result = colorScore(null);
+    expect(result).toContain('N/A');
+  });
+});
+
+describe('colorDelta', () => {
+  it('formats positive delta', () => {
+    const result = colorDelta(5);
+    expect(result).toContain('+5');
+  });
+
+  it('formats negative delta', () => {
+    const result = colorDelta(-5);
+    expect(result).toContain('-5');
+  });
+});
+
+describe('statusIcon', () => {
+  it('returns PASS for passing delta', () => {
+    const delta = mockDeltas.deltas[0];
+    const result = statusIcon(delta, passedResult);
+    expect(result).toContain('PASS');
+  });
+
+  it('returns FAIL for failed threshold', () => {
+    const delta = mockDeltas.deltas[0];
+    const result = statusIcon(delta, failedResult);
+    expect(result).toContain('FAIL');
+  });
+
+  it('returns WARN for regression', () => {
+    const delta = mockDeltas.deltas[1];
+    const result = statusIcon(delta, passedResult);
+    expect(result).toContain('WARN');
+  });
+});
+
+describe('formatTable', () => {
+  it('includes all categories', () => {
+    const result = formatTable(mockDeltas, passedResult);
+    expect(result).toContain('performance');
+    expect(result).toContain('accessibility');
+    expect(result).toContain('best-practices');
+    expect(result).toContain('seo');
+    expect(result).toContain('pwa');
+  });
+
+  it('has table structure', () => {
+    const result = formatTable(mockDeltas, passedResult);
+    expect(result).toContain('Category');
+    expect(result).toContain('Baseline');
+    expect(result).toContain('Current');
+    expect(result).toContain('Delta');
+  });
+});
+
+describe('formatSummary', () => {
+  it('shows improved count', () => {
+    const result = formatSummary(mockDeltas, passedResult);
+    expect(result).toContain('improved');
+  });
+
+  it('shows regressed count', () => {
+    const result = formatSummary(mockDeltas, passedResult);
+    expect(result).toContain('regressed');
+  });
+
+  it('shows failure count when failed', () => {
+    const result = formatSummary(mockDeltas, failedResult);
+    expect(result).toContain('failure');
+  });
+});
+
+describe('formatTerminal', () => {
   it('includes header', () => {
-    const output = formatComparison(comparisonResult);
-    expect(output).toContain('Lighthouse Score Comparison');
+    const result = formatTerminal(mockDeltas, passedResult);
+    expect(result).toContain('Lighthouse Comparison');
   });
 
   it('includes URLs', () => {
-    const output = formatComparison(comparisonResult);
-    expect(output).toContain('example.com/old');
-    expect(output).toContain('example.com/new');
+    const result = formatTerminal(mockDeltas, passedResult);
+    expect(result).toContain('baseline.com');
+    expect(result).toContain('current.com');
   });
 
-  it('includes all categories', () => {
-    const output = formatComparison(comparisonResult);
-    expect(output).toContain('Performance');
-    expect(output).toContain('Accessibility');
-    expect(output).toContain('Best Practices');
-    expect(output).toContain('SEO');
+  it('includes table', () => {
+    const result = formatTerminal(mockDeltas, passedResult);
+    expect(result).toContain('performance');
   });
 
-  it('shows pass message when validation passed', () => {
-    const output = formatComparison(comparisonResult);
-    expect(output).toContain('thresholds passed');
-  });
-
-  it('shows failures when validation failed', () => {
-    const failedResult: ComparisonResult = {
-      ...comparisonResult,
-      validation: {
-        passed: false,
-        failures: [
-          {
-            category: 'performance',
-            type: 'regression',
-            message: 'performance regressed by 10',
-            actual: -10,
-            threshold: -5,
-          },
-        ],
-      },
-    };
-
-    const output = formatComparison(failedResult);
-    expect(output).toContain('Threshold failures');
-    expect(output).toContain('performance regressed');
-  });
-});
-
-describe('formatScores', () => {
-  it('includes URL', () => {
-    const output = formatScores(baselineScores, 'https://example.com');
-    expect(output).toContain('example.com');
-  });
-
-  it('includes all scores', () => {
-    const output = formatScores(baselineScores, 'https://example.com');
-    expect(output).toContain('80');
-    expect(output).toContain('90');
-    expect(output).toContain('85');
-    expect(output).toContain('95');
-  });
-
-  it('includes PWA when present', () => {
-    const scoresWithPwa = { ...baselineScores, pwa: 70 };
-    const output = formatScores(scoresWithPwa, 'https://example.com');
-    expect(output).toContain('PWA');
-    expect(output).toContain('70');
-  });
-});
-
-describe('formatValidation', () => {
-  it('formats passed result', () => {
-    const result: ValidationResult = { passed: true, failures: [] };
-    const output = formatValidation(result);
-    expect(output).toContain('thresholds passed');
-  });
-
-  it('formats failed result with messages', () => {
-    const result: ValidationResult = {
-      passed: false,
-      failures: [
-        {
-          category: 'performance',
-          type: 'regression',
-          message: 'bad stuff happened',
-          actual: -10,
-          threshold: -5,
-        },
-      ],
-    };
-
-    const output = formatValidation(result);
-    expect(output).toContain('failures');
-    expect(output).toContain('bad stuff happened');
-  });
-});
-
-describe('formatMessage', () => {
-  it('formats info message', () => {
-    const output = formatMessage('hello', 'info');
-    expect(output).toContain('hello');
-  });
-
-  it('formats success message', () => {
-    const output = formatMessage('done', 'success');
-    expect(output).toContain('done');
-    expect(output).toContain('✓');
-  });
-
-  it('formats error message', () => {
-    const output = formatMessage('failed', 'error');
-    expect(output).toContain('failed');
-    expect(output).toContain('✗');
-  });
-
-  it('formats warning message', () => {
-    const output = formatMessage('caution', 'warning');
-    expect(output).toContain('caution');
-    expect(output).toContain('⚠');
+  it('includes summary', () => {
+    const result = formatTerminal(mockDeltas, passedResult);
+    expect(result).toContain('improved');
   });
 });

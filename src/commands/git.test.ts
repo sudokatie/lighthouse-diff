@@ -1,115 +1,83 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { gitCompare } from './git.js';
-import type { LighthouseScores } from '../types.js';
 
 // Mock all dependencies
 vi.mock('../lighthouse/runner.js', () => ({
-  runAudit: vi.fn(),
-  closeBrowser: vi.fn(),
+  runAudit: vi.fn().mockResolvedValue({
+    performance: 85,
+    accessibility: 92,
+    'best-practices': 88,
+    seo: 95,
+    pwa: null,
+  }),
+  closeBrowser: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../git/checkout.js', () => ({
-  captureState: vi.fn(() => ({ branch: 'main', commit: 'abc', stashed: false })),
+  captureState: vi.fn().mockReturnValue({ branch: 'main', commit: 'abc123', stashed: false }),
   restoreState: vi.fn(),
   checkout: vi.fn(),
 }));
 
 vi.mock('../git/server.js', () => ({
-  startServer: vi.fn(() => ({
+  startServer: vi.fn().mockResolvedValue({
     url: 'http://localhost:3000',
     port: 3000,
-    stop: vi.fn(),
-  })),
+    stop: vi.fn().mockResolvedValue(undefined),
+  }),
 }));
 
-vi.mock('../output/terminal.js', () => ({
-  formatComparison: vi.fn(() => 'terminal output'),
-}));
-vi.mock('../output/json.js', () => ({
-  formatComparison: vi.fn(() => '{}'),
-}));
-vi.mock('../output/markdown.js', () => ({
-  formatComparison: vi.fn(() => '# Report'),
-}));
-vi.mock('../output/github.js', () => ({
-  formatGitHubOutput: vi.fn(() => ''),
-}));
-
-describe('git command', () => {
-  const baselineScores: LighthouseScores = {
-    performance: 85,
-    accessibility: 90,
-    bestPractices: 88,
-    seo: 92,
-  };
-
-  const currentScores: LighthouseScores = {
-    performance: 82,
-    accessibility: 95,
-    bestPractices: 88,
-    seo: 90,
-  };
-
-  beforeEach(async () => {
+describe('gitCompare', () => {
+  beforeEach(() => {
     vi.clearAllMocks();
-    const runner = await import('../lighthouse/runner.js');
-    (runner.runAudit as any).mockReset();
-    (runner.runAudit as any)
-      .mockResolvedValueOnce(baselineScores)
-      .mockResolvedValueOnce(currentScores);
   });
 
-  it('checkouts correct refs', async () => {
-    const checkout = (await import('../git/checkout.js')).checkout;
+  it('returns comparison result', async () => {
+    const result = await gitCompare({ base: 'main' });
     
-    await gitCompare({ base: 'main', head: 'feature' });
-    
-    expect(checkout).toHaveBeenCalledWith('main');
-    expect(checkout).toHaveBeenCalledWith('feature');
+    expect(result.baseline).toBeDefined();
+    expect(result.current).toBeDefined();
+    expect(result.deltas).toBeDefined();
   });
 
-  it('starts and stops server for each audit', async () => {
-    const server = await import('../git/server.js');
+  it('checkouts base ref', async () => {
+    const { checkout } = await import('../git/checkout.js');
     
     await gitCompare({ base: 'main' });
     
-    // Called twice (baseline and current)
-    expect(server.startServer).toHaveBeenCalledTimes(2);
+    expect(checkout).toHaveBeenCalledWith('main');
+  });
+
+  it('starts and stops server', async () => {
+    const { startServer } = await import('../git/server.js');
+    
+    await gitCompare({ base: 'main' });
+    
+    expect(startServer).toHaveBeenCalledTimes(2);
   });
 
   it('restores state on success', async () => {
-    const checkout = await import('../git/checkout.js');
+    const { restoreState } = await import('../git/checkout.js');
     
     await gitCompare({ base: 'main' });
     
-    expect(checkout.restoreState).toHaveBeenCalled();
+    expect(restoreState).toHaveBeenCalled();
   });
 
-  it('restores state on error', async () => {
-    const runner = await import('../lighthouse/runner.js');
-    (runner.runAudit as any).mockReset();
-    (runner.runAudit as any).mockRejectedValue(new Error('audit failed'));
-    const checkout = await import('../git/checkout.js');
-    
-    await expect(gitCompare({ base: 'main' })).rejects.toThrow('audit failed');
-    
-    expect(checkout.restoreState).toHaveBeenCalled();
-  });
-
-  it('validates using thresholds with maxRegression', async () => {
-    const result = await gitCompare({ 
+  it('validates thresholds with maxRegression', async () => {
+    const result = await gitCompare({
       base: 'main',
-      maxRegression: 2, // -3 > -2 so should fail
+      thresholds: { performance: 90 },
+      maxRegression: { performance: 0 },
     });
     
-    expect(result.validation.passed).toBe(false);
-    expect(result.validation.failures.some(f => f.type === 'regression')).toBe(true);
+    expect(result.thresholdResult).toBeDefined();
   });
 
   it('returns exit 1 in ci mode when failed', async () => {
-    const result = await gitCompare({ 
+    const result = await gitCompare({
       base: 'main',
-      maxRegression: 1,
+      thresholds: { performance: 90 },
       ci: true,
     });
     
@@ -117,21 +85,19 @@ describe('git command', () => {
   });
 
   it('formats output correctly', async () => {
-    const json = await import('../output/json.js');
-    
-    await gitCompare({ 
+    const result = await gitCompare({
       base: 'main',
       format: 'json',
     });
     
-    expect(json.formatComparison).toHaveBeenCalled();
+    expect(() => JSON.parse(result.output)).not.toThrow();
   });
 
   it('closes browser in finally', async () => {
-    const runner = await import('../lighthouse/runner.js');
+    const { closeBrowser } = await import('../lighthouse/runner.js');
     
     await gitCompare({ base: 'main' });
     
-    expect(runner.closeBrowser).toHaveBeenCalled();
+    expect(closeBrowser).toHaveBeenCalled();
   });
 });

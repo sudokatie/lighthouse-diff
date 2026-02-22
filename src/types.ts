@@ -1,139 +1,131 @@
 /**
- * Lighthouse category scores (0-100)
+ * Core types for lighthouse-diff
  */
-export interface LighthouseScores {
-  performance: number;
-  accessibility: number;
-  bestPractices: number;
-  seo: number;
-  pwa?: number;
+
+// The 5 Lighthouse score categories
+export type ScoreCategory =
+  | "performance"
+  | "accessibility"
+  | "best-practices"
+  | "seo"
+  | "pwa";
+
+// Array for iteration
+export const SCORE_CATEGORIES: ScoreCategory[] = [
+  "performance",
+  "accessibility",
+  "best-practices",
+  "seo",
+  "pwa",
+];
+
+// Scores per category (null if category missing)
+export interface CategoryScores {
+  performance: number | null;
+  accessibility: number | null;
+  "best-practices": number | null;
+  seo: number | null;
+  pwa: number | null;
 }
 
-/**
- * Delta between two score sets
- */
+// Parsed Lighthouse audit result
+export interface LighthouseResult {
+  url: string;
+  fetchTime: string;
+  scores: CategoryScores;
+}
+
+// Direction of score change
+export type Direction = "improved" | "regressed" | "unchanged";
+
+// Single category comparison
 export interface ScoreDelta {
-  performance: number;
-  accessibility: number;
-  bestPractices: number;
-  seo: number;
+  category: ScoreCategory;
+  baseline: number | null;
+  current: number | null;
+  delta: number | null;
+  direction: Direction;
+}
+
+// Full comparison result
+export interface ScoreDeltas {
+  baselineUrl: string;
+  currentUrl: string;
+  timestamp: string;
+  deltas: ScoreDelta[];
+}
+
+// Minimum score thresholds (per-category)
+export interface ThresholdConfig {
+  performance?: number;
+  accessibility?: number;
+  "best-practices"?: number;
+  seo?: number;
   pwa?: number;
 }
 
-/**
- * Threshold configuration for validation
- */
-export interface Thresholds {
-  /** Maximum allowed regression per category (negative = regression) */
-  maxRegression?: number;
-  /** Minimum required score per category */
-  minScore?: {
-    performance?: number;
-    accessibility?: number;
-    bestPractices?: number;
-    seo?: number;
-    pwa?: number;
-  };
-  /** Fail if any category drops below this */
-  absoluteMin?: number;
+// Maximum allowed regression (per-category)
+export interface MaxRegressionConfig {
+  performance?: number;
+  accessibility?: number;
+  "best-practices"?: number;
+  seo?: number;
+  pwa?: number;
 }
 
-/**
- * Result of threshold validation
- */
-export interface ValidationResult {
-  passed: boolean;
-  failures: ValidationFailure[];
-}
-
-export interface ValidationFailure {
-  category: keyof LighthouseScores;
-  type: 'regression' | 'minScore' | 'absoluteMin';
-  message: string;
+// Single threshold violation
+export interface ThresholdFailure {
+  category: ScoreCategory;
+  reason: "below-threshold" | "regression";
+  expected: number;
   actual: number;
-  threshold: number;
 }
 
-/**
- * Comparison result between two URLs/commits
- */
-export interface ComparisonResult {
-  baseline: {
-    url: string;
-    scores: LighthouseScores;
-    timestamp: Date;
-  };
-  current: {
-    url: string;
-    scores: LighthouseScores;
-    timestamp: Date;
-  };
-  delta: ScoreDelta;
-  validation: ValidationResult;
+// Threshold validation result
+export interface ThresholdResult {
+  passed: boolean;
+  failures: ThresholdFailure[];
 }
 
-/**
- * Lighthouse runner options
- */
+// Full configuration
+export interface Config {
+  thresholds: ThresholdConfig;
+  maxRegression: MaxRegressionConfig;
+  lighthouseConfig?: {
+    formFactor?: "mobile" | "desktop";
+    throttling?: boolean;
+  };
+}
+
+// Output format options
+export type OutputFormat = "terminal" | "json" | "markdown" | "github";
+
+// Runner options
 export interface RunnerOptions {
-  /** Number of runs to average */
-  runs?: number;
-  /** Categories to audit */
-  categories?: (keyof LighthouseScores)[];
-  /** Device emulation */
-  device?: 'mobile' | 'desktop';
-  /** Port for Chrome DevTools Protocol */
-  port?: number;
-  /** Timeout in milliseconds */
+  formFactor?: "mobile" | "desktop";
+  throttling?: boolean;
   timeout?: number;
 }
 
-/**
- * Configuration file schema
- */
-export interface Config {
-  /** URLs to compare (baseline vs current) */
-  urls?: {
-    baseline?: string;
-    current?: string;
-  };
-  /** Threshold configuration */
-  thresholds?: Thresholds;
-  /** Runner options */
-  runner?: RunnerOptions;
-  /** Output format */
-  output?: 'terminal' | 'json' | 'markdown' | 'github';
-}
-
-/**
- * Git comparison options
- */
-export interface GitOptions {
-  /** Base ref (commit/branch/tag) */
-  base: string;
-  /** Head ref (defaults to current) */
-  head?: string;
-  /** Path to serve */
-  servePath?: string;
-  /** Port for local server */
-  port?: number;
-}
-
-/**
- * Output format type
- */
-export type OutputFormat = 'terminal' | 'json' | 'markdown' | 'github';
-
-/**
- * CLI options
- */
-export interface CLIOptions {
-  baseline: string;
-  current: string;
-  format?: OutputFormat;
-  runs?: number;
-  device?: 'mobile' | 'desktop';
-  threshold?: number;
+// Compare command options
+export interface CompareOptions {
   config?: string;
-  verbose?: boolean;
+  format?: OutputFormat;
+  ci?: boolean;
+  thresholdPerformance?: number;
+  thresholdAccessibility?: number;
+  thresholdBestPractices?: number;
+  thresholdSeo?: number;
+  maxRegressionPerformance?: number;
+  maxRegressionAccessibility?: number;
+  maxRegressionBestPractices?: number;
+  maxRegressionSeo?: number;
+}
+
+// Git command options
+export interface GitOptions {
+  head?: string;
+  serve?: string;
+  port?: number;
+  path?: string;
 }

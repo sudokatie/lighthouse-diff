@@ -1,19 +1,32 @@
 import chalk from 'chalk';
-import type { ComparisonResult, LighthouseScores, ScoreDelta, ValidationResult } from '../types.js';
-import { formatDelta } from '../diff/calculator.js';
+import type { ScoreDeltas, ScoreDelta, ThresholdResult } from '../types.js';
+import { formatDelta, getSummary } from '../diff/calculator.js';
 
-const CATEGORY_NAMES: Record<keyof LighthouseScores, string> = {
-  performance: 'Performance',
-  accessibility: 'Accessibility',
-  bestPractices: 'Best Practices',
-  seo: 'SEO',
-  pwa: 'PWA',
-};
+// Box drawing characters
+const TOP_LEFT = '┌';
+const TOP_RIGHT = '┐';
+const BOTTOM_LEFT = '└';
+const BOTTOM_RIGHT = '┘';
+const HORIZONTAL = '─';
+const VERTICAL = '│';
+const T_DOWN = '┬';
+const T_UP = '┴';
+const T_RIGHT = '├';
+const T_LEFT = '┤';
+const CROSS = '┼';
+
+// Column widths
+const COL_CATEGORY = 17;
+const COL_BASELINE = 10;
+const COL_CURRENT = 10;
+const COL_DELTA = 10;
+const COL_STATUS = 9;
 
 /**
  * Color a score based on value
  */
-function colorScore(score: number): string {
+export function colorScore(score: number | null): string {
+  if (score === null) return chalk.gray('N/A');
   if (score >= 90) return chalk.green(score.toString());
   if (score >= 50) return chalk.yellow(score.toString());
   return chalk.red(score.toString());
@@ -22,139 +35,161 @@ function colorScore(score: number): string {
 /**
  * Color a delta based on direction
  */
-function colorDelta(delta: number): string {
+export function colorDelta(delta: number | null): string {
   const formatted = formatDelta(delta);
+  if (delta === null) return chalk.gray(formatted);
   if (delta > 0) return chalk.green(formatted);
   if (delta < 0) return chalk.red(formatted);
-  return chalk.gray(formatted);
+  return formatted;
 }
 
 /**
- * Format scores as a table row
+ * Get status icon for a category
  */
-function formatScoreRow(
-  category: keyof LighthouseScores,
-  baseline: number | undefined,
-  current: number | undefined,
-  delta: number | undefined
+export function statusIcon(
+  delta: ScoreDelta,
+  thresholdResult: ThresholdResult
 ): string {
-  const name = CATEGORY_NAMES[category].padEnd(15);
-  const baseStr = baseline !== undefined ? colorScore(baseline).padStart(8) : '    -   ';
-  const currStr = current !== undefined ? colorScore(current).padStart(8) : '    -   ';
-  const deltaStr = delta !== undefined ? colorDelta(delta).padStart(8) : '    -   ';
-
-  return `  ${name} ${baseStr}  →  ${currStr}  (${deltaStr})`;
+  const failure = thresholdResult.failures.find(f => f.category === delta.category);
+  
+  if (failure) {
+    return chalk.red('FAIL');
+  }
+  
+  if (delta.direction === 'regressed') {
+    return chalk.yellow('WARN');
+  }
+  
+  return chalk.green('PASS');
 }
 
 /**
- * Format comparison result for terminal output
+ * Pad string to width
  */
-export function formatComparison(result: ComparisonResult): string {
-  const lines: string[] = [];
+function pad(str: string, width: number, align: 'left' | 'right' | 'center' = 'left'): string {
+  const stripped = str.replace(/\x1b\[[0-9;]*m/g, '');
+  const padding = Math.max(0, width - stripped.length);
+  
+  if (align === 'right') {
+    return ' '.repeat(padding) + str;
+  }
+  if (align === 'center') {
+    const left = Math.floor(padding / 2);
+    const right = padding - left;
+    return ' '.repeat(left) + str + ' '.repeat(right);
+  }
+  return str + ' '.repeat(padding);
+}
 
+/**
+ * Format the comparison table
+ */
+export function formatTable(deltas: ScoreDeltas, thresholdResult: ThresholdResult): string {
+  const lines: string[] = [];
+  
   // Header
-  lines.push(chalk.bold('\n📊 Lighthouse Score Comparison\n'));
-
-  // URLs
-  lines.push(chalk.dim(`Baseline: ${result.baseline.url}`));
-  lines.push(chalk.dim(`Current:  ${result.current.url}`));
-  lines.push('');
-
-  // Table header
-  lines.push(chalk.bold('  Category        Baseline  →  Current   (Delta)'));
-  lines.push(chalk.dim('  ' + '─'.repeat(50)));
-
-  // Scores
-  const categories: (keyof LighthouseScores)[] = [
-    'performance',
-    'accessibility',
-    'bestPractices',
-    'seo',
-  ];
-
-  if (result.baseline.scores.pwa !== undefined) {
-    categories.push('pwa');
+  const headerLine = 
+    TOP_LEFT + 
+    HORIZONTAL.repeat(COL_CATEGORY) + T_DOWN +
+    HORIZONTAL.repeat(COL_BASELINE) + T_DOWN +
+    HORIZONTAL.repeat(COL_CURRENT) + T_DOWN +
+    HORIZONTAL.repeat(COL_DELTA) + T_DOWN +
+    HORIZONTAL.repeat(COL_STATUS) + 
+    TOP_RIGHT;
+  lines.push(headerLine);
+  
+  const headerRow = 
+    VERTICAL + 
+    pad(' Category', COL_CATEGORY) + VERTICAL +
+    pad(' Baseline', COL_BASELINE) + VERTICAL +
+    pad(' Current', COL_CURRENT) + VERTICAL +
+    pad(' Delta', COL_DELTA) + VERTICAL +
+    pad(' Status', COL_STATUS) + 
+    VERTICAL;
+  lines.push(headerRow);
+  
+  const separatorLine = 
+    T_RIGHT + 
+    HORIZONTAL.repeat(COL_CATEGORY) + CROSS +
+    HORIZONTAL.repeat(COL_BASELINE) + CROSS +
+    HORIZONTAL.repeat(COL_CURRENT) + CROSS +
+    HORIZONTAL.repeat(COL_DELTA) + CROSS +
+    HORIZONTAL.repeat(COL_STATUS) + 
+    T_LEFT;
+  lines.push(separatorLine);
+  
+  // Data rows
+  for (const delta of deltas.deltas) {
+    const row = 
+      VERTICAL + 
+      pad(` ${delta.category}`, COL_CATEGORY) + VERTICAL +
+      pad(` ${colorScore(delta.baseline)}`, COL_BASELINE) + VERTICAL +
+      pad(` ${colorScore(delta.current)}`, COL_CURRENT) + VERTICAL +
+      pad(` ${colorDelta(delta.delta)}`, COL_DELTA) + VERTICAL +
+      pad(` ${statusIcon(delta, thresholdResult)}`, COL_STATUS) + 
+      VERTICAL;
+    lines.push(row);
   }
-
-  for (const category of categories) {
-    lines.push(
-      formatScoreRow(
-        category,
-        result.baseline.scores[category],
-        result.current.scores[category],
-        result.delta[category]
-      )
-    );
-  }
-
-  lines.push('');
-
-  // Validation result
-  if (result.validation.passed) {
-    lines.push(chalk.green('✓ All thresholds passed'));
-  } else {
-    lines.push(chalk.red('✗ Threshold failures:'));
-    for (const failure of result.validation.failures) {
-      lines.push(chalk.red(`  • ${failure.message}`));
-    }
-  }
-
-  lines.push('');
-
+  
+  // Footer
+  const footerLine = 
+    BOTTOM_LEFT + 
+    HORIZONTAL.repeat(COL_CATEGORY) + T_UP +
+    HORIZONTAL.repeat(COL_BASELINE) + T_UP +
+    HORIZONTAL.repeat(COL_CURRENT) + T_UP +
+    HORIZONTAL.repeat(COL_DELTA) + T_UP +
+    HORIZONTAL.repeat(COL_STATUS) + 
+    BOTTOM_RIGHT;
+  lines.push(footerLine);
+  
   return lines.join('\n');
 }
 
 /**
- * Format just the scores (no comparison)
+ * Format the summary line
  */
-export function formatScores(scores: LighthouseScores, url: string): string {
+export function formatSummary(deltas: ScoreDeltas, thresholdResult: ThresholdResult): string {
+  const summary = getSummary(deltas.deltas);
+  const parts: string[] = [];
+  
+  if (summary.improved > 0) {
+    parts.push(chalk.green(`${summary.improved} improved`));
+  }
+  if (summary.regressed > 0) {
+    parts.push(chalk.red(`${summary.regressed} regressed`));
+  }
+  if (summary.unchanged > 0) {
+    parts.push(chalk.gray(`${summary.unchanged} unchanged`));
+  }
+  
+  let result = parts.join(', ');
+  
+  if (summary.avgDelta !== null) {
+    result += ` | Avg: ${colorDelta(summary.avgDelta)}`;
+  }
+  
+  if (!thresholdResult.passed) {
+    result += chalk.red(` | ${thresholdResult.failures.length} threshold failure(s)`);
+  }
+  
+  return result;
+}
+
+/**
+ * Format full terminal output
+ */
+export function formatTerminal(deltas: ScoreDeltas, thresholdResult: ThresholdResult): string {
   const lines: string[] = [];
-
-  lines.push(chalk.bold(`\n📊 Lighthouse Scores: ${url}\n`));
-
-  lines.push(`  ${chalk.dim('Performance:')}    ${colorScore(scores.performance)}`);
-  lines.push(`  ${chalk.dim('Accessibility:')}  ${colorScore(scores.accessibility)}`);
-  lines.push(`  ${chalk.dim('Best Practices:')} ${colorScore(scores.bestPractices)}`);
-  lines.push(`  ${chalk.dim('SEO:')}            ${colorScore(scores.seo)}`);
-
-  if (scores.pwa !== undefined) {
-    lines.push(`  ${chalk.dim('PWA:')}            ${colorScore(scores.pwa)}`);
-  }
-
+  
   lines.push('');
-
-  return lines.join('\n');
-}
-
-/**
- * Format validation result
- */
-export function formatValidation(result: ValidationResult): string {
-  if (result.passed) {
-    return chalk.green('✓ All thresholds passed\n');
-  }
-
-  const lines = [chalk.red('✗ Threshold failures:')];
-  for (const failure of result.failures) {
-    lines.push(chalk.red(`  • ${failure.message}`));
-  }
+  lines.push(chalk.bold('Lighthouse Comparison'));
+  lines.push(`Baseline: ${deltas.baselineUrl}`);
+  lines.push(`Current:  ${deltas.currentUrl}`);
   lines.push('');
-
+  lines.push(formatTable(deltas, thresholdResult));
+  lines.push('');
+  lines.push(formatSummary(deltas, thresholdResult));
+  lines.push('');
+  
   return lines.join('\n');
-}
-
-/**
- * Format a simple message
- */
-export function formatMessage(message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info'): string {
-  switch (type) {
-    case 'success':
-      return chalk.green(`✓ ${message}`);
-    case 'error':
-      return chalk.red(`✗ ${message}`);
-    case 'warning':
-      return chalk.yellow(`⚠ ${message}`);
-    default:
-      return chalk.blue(`ℹ ${message}`);
-  }
 }

@@ -1,40 +1,31 @@
 import type { 
-  LighthouseScores, 
-  ScoreDelta, 
-  ValidationResult, 
-  ComparisonResult,
-  Config,
+  CategoryScores,
+  ScoreDeltas,
+  ThresholdResult,
+  ThresholdConfig,
+  MaxRegressionConfig,
   OutputFormat,
 } from '../types.js';
 import { runAudit, closeBrowser } from '../lighthouse/runner.js';
-import { calculateDelta } from '../diff/calculator.js';
-import { validateThresholds } from '../diff/threshold.js';
-import { formatComparison as formatTerminal } from '../output/terminal.js';
-import { formatComparison as formatJson } from '../output/json.js';
-import { formatComparison as formatMarkdown } from '../output/markdown.js';
-import { formatGitHubOutput } from '../output/github.js';
+import { calculateDeltas } from '../diff/calculator.js';
+import { validateAll } from '../diff/threshold.js';
+import { formatTerminal } from '../output/terminal.js';
+import { formatJson } from '../output/json.js';
+import { formatMarkdown } from '../output/markdown.js';
+import { formatGitHub } from '../output/github.js';
 
 export interface CompareOptions {
-  /** Runner options */
-  runs?: number;
-  device?: 'mobile' | 'desktop';
-  /** Thresholds */
-  maxRegression?: number;
-  minScore?: number;
-  absoluteMin?: number;
-  /** Output */
+  thresholds?: ThresholdConfig;
+  maxRegression?: MaxRegressionConfig;
   format?: OutputFormat;
-  /** CI mode - exit non-zero on failure */
   ci?: boolean;
-  /** Verbose output */
-  verbose?: boolean;
 }
 
 export interface CompareResult {
-  baseline: LighthouseScores;
-  current: LighthouseScores;
-  delta: ScoreDelta;
-  validation: ValidationResult;
+  baseline: CategoryScores;
+  current: CategoryScores;
+  deltas: ScoreDeltas;
+  thresholdResult: ThresholdResult;
   output: string;
   exitCode: number;
 }
@@ -49,70 +40,34 @@ export async function compare(
 ): Promise<CompareResult> {
   try {
     // Log to stderr
-    if (options.verbose) {
-      console.error(`Auditing baseline: ${baselineUrl}`);
-    }
-    const baseline = await runAudit(baselineUrl, {
-      runs: options.runs,
-      device: options.device,
-    });
+    console.error(`Auditing baseline: ${baselineUrl}`);
+    const baseline = await runAudit(baselineUrl);
 
-    if (options.verbose) {
-      console.error(`Auditing current: ${currentUrl}`);
-    }
-    const current = await runAudit(currentUrl, {
-      runs: options.runs,
-      device: options.device,
-    });
+    console.error(`Auditing current: ${currentUrl}`);
+    const current = await runAudit(currentUrl);
 
     // Calculate deltas
-    const delta = calculateDelta(baseline, current);
+    const deltas = calculateDeltas(baseline, current, baselineUrl, currentUrl);
 
-    // Validate against thresholds (use validateThresholds which checks all)
-    const validation = validateThresholds(
-      baseline,
+    // Validate using validateAll (BOTH thresholds AND maxRegression)
+    const thresholdResult = validateAll(
       current,
-      delta,
-      {
-        maxRegression: options.maxRegression,
-        absoluteMin: options.absoluteMin,
-        minScore: options.minScore !== undefined 
-          ? {
-              performance: options.minScore,
-              accessibility: options.minScore,
-              bestPractices: options.minScore,
-              seo: options.minScore,
-            }
-          : undefined,
-      }
+      deltas.deltas,
+      options.thresholds ?? {},
+      options.maxRegression ?? {}
     );
 
     // Format output
-    const comparisonResult: ComparisonResult = {
-      baseline: {
-        url: baselineUrl,
-        scores: baseline,
-        timestamp: new Date(),
-      },
-      current: {
-        url: currentUrl,
-        scores: current,
-        timestamp: new Date(),
-      },
-      delta,
-      validation,
-    };
-
-    const output = formatOutput(comparisonResult, options.format ?? 'terminal');
+    const output = formatOutput(deltas, thresholdResult, options.format ?? 'terminal');
 
     // Determine exit code
-    const exitCode = options.ci && !validation.passed ? 1 : 0;
+    const exitCode = options.ci && !thresholdResult.passed ? 1 : 0;
 
     return {
       baseline,
       current,
-      delta,
-      validation,
+      deltas,
+      thresholdResult,
       output,
       exitCode,
     };
@@ -124,16 +79,20 @@ export async function compare(
 /**
  * Format output based on format option
  */
-function formatOutput(result: ComparisonResult, format: OutputFormat): string {
+function formatOutput(
+  deltas: ScoreDeltas,
+  thresholdResult: ThresholdResult,
+  format: OutputFormat
+): string {
   switch (format) {
     case 'json':
-      return formatJson(result);
+      return formatJson(deltas, thresholdResult);
     case 'markdown':
-      return formatMarkdown(result);
+      return formatMarkdown(deltas, thresholdResult);
     case 'github':
-      return formatGitHubOutput(result.validation);
+      return formatGitHub(thresholdResult);
     case 'terminal':
     default:
-      return formatTerminal(result);
+      return formatTerminal(deltas, thresholdResult);
   }
 }

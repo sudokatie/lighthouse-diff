@@ -1,49 +1,38 @@
 import type { 
-  LighthouseScores, 
-  ScoreDelta, 
-  ValidationResult, 
-  ComparisonResult,
+  CategoryScores,
+  ScoreDeltas,
+  ThresholdResult,
+  ThresholdConfig,
+  MaxRegressionConfig,
   OutputFormat,
 } from '../types.js';
 import { runAudit, closeBrowser } from '../lighthouse/runner.js';
-import { calculateDelta } from '../diff/calculator.js';
-import { validateThresholds } from '../diff/threshold.js';
+import { calculateDeltas } from '../diff/calculator.js';
+import { validateAll } from '../diff/threshold.js';
 import { captureState, restoreState, checkout } from '../git/checkout.js';
 import { startServer } from '../git/server.js';
-import { formatComparison as formatTerminal } from '../output/terminal.js';
-import { formatComparison as formatJson } from '../output/json.js';
-import { formatComparison as formatMarkdown } from '../output/markdown.js';
-import { formatGitHubOutput } from '../output/github.js';
+import { formatTerminal } from '../output/terminal.js';
+import { formatJson } from '../output/json.js';
+import { formatMarkdown } from '../output/markdown.js';
+import { formatGitHub } from '../output/github.js';
 
 export interface GitCompareOptions {
-  /** Base ref to compare from */
   base: string;
-  /** Head ref to compare to (default: current) */
   head?: string;
-  /** Path to serve */
-  servePath?: string;
-  /** Port for local server */
+  serve?: string;
   port?: number;
-  /** Runner options */
-  runs?: number;
-  device?: 'mobile' | 'desktop';
-  /** Thresholds */
-  maxRegression?: number;
-  minScore?: number;
-  absoluteMin?: number;
-  /** Output */
+  path?: string;
+  thresholds?: ThresholdConfig;
+  maxRegression?: MaxRegressionConfig;
   format?: OutputFormat;
-  /** CI mode */
   ci?: boolean;
-  /** Verbose */
-  verbose?: boolean;
 }
 
 export interface GitCompareResult {
-  baseline: LighthouseScores;
-  current: LighthouseScores;
-  delta: ScoreDelta;
-  validation: ValidationResult;
+  baseline: CategoryScores;
+  current: CategoryScores;
+  deltas: ScoreDeltas;
+  thresholdResult: ThresholdResult;
   output: string;
   exitCode: number;
 }
@@ -53,107 +42,73 @@ export interface GitCompareResult {
  */
 export async function gitCompare(options: GitCompareOptions): Promise<GitCompareResult> {
   const state = captureState();
+  const serverCmd = options.serve ?? 'npm run dev';
+  const serverPort = options.port ?? 3000;
+  const urlPath = options.path ?? '/';
   
   try {
-    // Audit baseline
-    if (options.verbose) {
-      console.error(`Checking out ${options.base}...`);
-    }
+    // Checkout base and audit
+    console.error(`Checking out ${options.base}...`);
     checkout(options.base);
     
     const baseServer = await startServer({ 
-      port: options.port, 
-      path: options.servePath,
+      command: serverCmd,
+      port: serverPort,
     });
     
-    let baseline: LighthouseScores;
+    let baseline: CategoryScores;
     try {
-      if (options.verbose) {
-        console.error(`Auditing baseline: ${baseServer.url}`);
-      }
-      baseline = await runAudit(baseServer.url, {
-        runs: options.runs,
-        device: options.device,
-      });
+      const baseUrl = `http://localhost:${serverPort}${urlPath}`;
+      console.error(`Auditing baseline: ${baseUrl}`);
+      baseline = await runAudit(baseUrl);
     } finally {
       await baseServer.stop();
     }
 
-    // Audit current (head or restored state)
+    // Checkout head (or restore) and audit
     if (options.head) {
-      if (options.verbose) {
-        console.error(`Checking out ${options.head}...`);
-      }
+      console.error(`Checking out ${options.head}...`);
       checkout(options.head);
     } else {
-      // Restore to original state for current
       restoreState(state);
     }
 
     const currentServer = await startServer({ 
-      port: options.port, 
-      path: options.servePath,
+      command: serverCmd,
+      port: serverPort,
     });
     
-    let current: LighthouseScores;
+    let current: CategoryScores;
     try {
-      if (options.verbose) {
-        console.error(`Auditing current: ${currentServer.url}`);
-      }
-      current = await runAudit(currentServer.url, {
-        runs: options.runs,
-        device: options.device,
-      });
+      const currentUrl = `http://localhost:${serverPort}${urlPath}`;
+      console.error(`Auditing current: ${currentUrl}`);
+      current = await runAudit(currentUrl);
     } finally {
       await currentServer.stop();
     }
 
     // Calculate deltas
-    const delta = calculateDelta(baseline, current);
+    const baseLabel = options.base;
+    const currentLabel = options.head ?? 'HEAD';
+    const deltas = calculateDeltas(baseline, current, baseLabel, currentLabel);
 
-    // Validate using validateThresholds (which checks all threshold types)
-    const validation = validateThresholds(
-      baseline,
+    // Validate using validateAll (CRITICAL: must include maxRegression)
+    const thresholdResult = validateAll(
       current,
-      delta,
-      {
-        maxRegression: options.maxRegression,
-        absoluteMin: options.absoluteMin,
-        minScore: options.minScore !== undefined 
-          ? {
-              performance: options.minScore,
-              accessibility: options.minScore,
-              bestPractices: options.minScore,
-              seo: options.minScore,
-            }
-          : undefined,
-      }
+      deltas.deltas,
+      options.thresholds ?? {},
+      options.maxRegression ?? {}
     );
 
     // Format output
-    const comparisonResult: ComparisonResult = {
-      baseline: {
-        url: `${options.base} (local)`,
-        scores: baseline,
-        timestamp: new Date(),
-      },
-      current: {
-        url: `${options.head ?? 'HEAD'} (local)`,
-        scores: current,
-        timestamp: new Date(),
-      },
-      delta,
-      validation,
-    };
-
-    const output = formatOutput(comparisonResult, options.format ?? 'terminal');
-    const exitCode = options.ci && !validation.passed ? 1 : 0;
+    const output = formatOutput(deltas, thresholdResult, options.format ?? 'terminal');
+    const exitCode = options.ci && !thresholdResult.passed ? 1 : 0;
 
     return {
       baseline,
       current,
-      delta,
-      validation,
+      deltas,
+      thresholdResult,
       output,
       exitCode,
     };
@@ -167,16 +122,20 @@ export async function gitCompare(options: GitCompareOptions): Promise<GitCompare
 /**
  * Format output based on format option
  */
-function formatOutput(result: ComparisonResult, format: OutputFormat): string {
+function formatOutput(
+  deltas: ScoreDeltas,
+  thresholdResult: ThresholdResult,
+  format: OutputFormat
+): string {
   switch (format) {
     case 'json':
-      return formatJson(result);
+      return formatJson(deltas, thresholdResult);
     case 'markdown':
-      return formatMarkdown(result);
+      return formatMarkdown(deltas, thresholdResult);
     case 'github':
-      return formatGitHubOutput(result.validation);
+      return formatGitHub(thresholdResult);
     case 'terminal':
     default:
-      return formatTerminal(result);
+      return formatTerminal(deltas, thresholdResult);
   }
 }

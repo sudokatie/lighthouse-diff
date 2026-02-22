@@ -1,66 +1,63 @@
-import type { ValidationResult, ValidationFailure } from '../types.js';
+import type { ThresholdResult, ThresholdFailure } from '../types.js';
 
 /**
- * Format a single failure as GitHub annotation
+ * Format a failure as a GitHub annotation
  */
-function formatFailure(failure: ValidationFailure): string {
-  const level = failure.type === 'regression' ? 'warning' : 'error';
-  return `::${level}::${failure.message}`;
+function formatAnnotation(failure: ThresholdFailure): string {
+  if (failure.reason === 'below-threshold') {
+    return `::error title=${failure.category}::Score ${failure.actual} is below minimum threshold of ${failure.expected}`;
+  } else {
+    return `::warning title=${failure.category}::Regressed by ${failure.actual} points (max allowed: ${failure.expected})`;
+  }
 }
 
 /**
- * Format threshold failures as GitHub Actions annotations
+ * Format threshold result as GitHub Actions annotations
  */
-export function formatAnnotations(result: ValidationResult): string {
-  if (result.passed || result.failures.length === 0) {
+export function formatAnnotations(thresholdResult: ThresholdResult): string {
+  if (thresholdResult.passed || thresholdResult.failures.length === 0) {
     return '';
   }
 
-  return result.failures.map(formatFailure).join('\n');
+  return thresholdResult.failures.map(formatAnnotation).join('\n');
 }
 
 /**
- * Set an output variable in GitHub Actions
+ * Set a GitHub Actions output
  */
 export function setOutput(name: string, value: string): string {
-  // For multiline values, use heredoc syntax
-  if (value.includes('\n')) {
-    return `${name}<<EOF\n${value}\nEOF`;
-  }
-  return `${name}=${value}`;
+  // Escape special characters
+  const escaped = value
+    .replace(/%/g, '%25')
+    .replace(/\r/g, '%0D')
+    .replace(/\n/g, '%0A');
+  
+  return `::set-output name=${name}::${escaped}`;
 }
 
 /**
- * Start a collapsible group in GitHub Actions log
+ * Start a log group
  */
 export function startGroup(name: string): string {
   return `::group::${name}`;
 }
 
 /**
- * End a collapsible group in GitHub Actions log
+ * End a log group
  */
 export function endGroup(): string {
   return '::endgroup::';
 }
 
 /**
- * Format full GitHub Actions output
+ * Format complete GitHub output
  */
-export function formatGitHubOutput(result: ValidationResult): string {
+export function formatGitHub(thresholdResult: ThresholdResult): string {
   const lines: string[] = [];
   
-  // Add annotations
-  const annotations = formatAnnotations(result);
+  const annotations = formatAnnotations(thresholdResult);
   if (annotations) {
     lines.push(annotations);
-  }
-  
-  // Set output variable for pass/fail
-  lines.push(setOutput('lighthouse-passed', result.passed ? 'true' : 'false'));
-  
-  if (!result.passed) {
-    lines.push(setOutput('lighthouse-failures', String(result.failures.length)));
   }
   
   return lines.join('\n');

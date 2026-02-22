@@ -1,208 +1,129 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calculateDelta,
-  worstRegression,
-  hasRegression,
-  getRegressedCategories,
-  getImprovedCategories,
-  averageScore,
+  getDirection,
+  calculateCategoryDelta,
+  calculateDeltas,
   formatDelta,
-  roundScores,
+  getSummary,
 } from './calculator.js';
-import type { LighthouseScores } from '../types.js';
+import type { CategoryScores } from '../types.js';
 
-describe('calculateDelta', () => {
-  it('calculates positive delta for improvements', () => {
-    const baseline: LighthouseScores = {
-      performance: 50,
-      accessibility: 60,
-      bestPractices: 70,
-      seo: 80,
-    };
-    const current: LighthouseScores = {
-      performance: 60,
-      accessibility: 70,
-      bestPractices: 80,
-      seo: 90,
-    };
-
-    const delta = calculateDelta(baseline, current);
-
-    expect(delta.performance).toBe(10);
-    expect(delta.accessibility).toBe(10);
-    expect(delta.bestPractices).toBe(10);
-    expect(delta.seo).toBe(10);
+describe('getDirection', () => {
+  it('returns improved for positive delta', () => {
+    expect(getDirection(5)).toBe('improved');
   });
 
-  it('calculates negative delta for regressions', () => {
-    const baseline: LighthouseScores = {
+  it('returns regressed for negative delta', () => {
+    expect(getDirection(-5)).toBe('regressed');
+  });
+
+  it('returns unchanged for zero delta', () => {
+    expect(getDirection(0)).toBe('unchanged');
+  });
+
+  it('returns unchanged for null delta', () => {
+    expect(getDirection(null)).toBe('unchanged');
+  });
+});
+
+describe('calculateCategoryDelta', () => {
+  it('calculates positive delta for improvement', () => {
+    const delta = calculateCategoryDelta('performance', 80, 90);
+    expect(delta.delta).toBe(10);
+    expect(delta.direction).toBe('improved');
+  });
+
+  it('calculates negative delta for regression', () => {
+    const delta = calculateCategoryDelta('performance', 90, 80);
+    expect(delta.delta).toBe(-10);
+    expect(delta.direction).toBe('regressed');
+  });
+
+  it('returns null delta when baseline is null', () => {
+    const delta = calculateCategoryDelta('performance', null, 90);
+    expect(delta.delta).toBe(null);
+    expect(delta.direction).toBe('unchanged');
+  });
+
+  it('returns null delta when current is null', () => {
+    const delta = calculateCategoryDelta('performance', 80, null);
+    expect(delta.delta).toBe(null);
+    expect(delta.direction).toBe('unchanged');
+  });
+});
+
+describe('calculateDeltas', () => {
+  it('calculates deltas for all categories', () => {
+    const baseline: CategoryScores = {
       performance: 80,
       accessibility: 90,
-      bestPractices: 85,
+      'best-practices': 85,
       seo: 95,
+      pwa: null,
     };
-    const current: LighthouseScores = {
-      performance: 70,
-      accessibility: 85,
-      bestPractices: 80,
-      seo: 90,
-    };
-
-    const delta = calculateDelta(baseline, current);
-
-    expect(delta.performance).toBe(-10);
-    expect(delta.accessibility).toBe(-5);
-  });
-
-  it('handles PWA scores when present', () => {
-    const baseline: LighthouseScores = {
-      performance: 80,
-      accessibility: 90,
-      bestPractices: 85,
+    const current: CategoryScores = {
+      performance: 85,
+      accessibility: 88,
+      'best-practices': 85,
       seo: 95,
-      pwa: 50,
-    };
-    const current: LighthouseScores = {
-      performance: 80,
-      accessibility: 90,
-      bestPractices: 85,
-      seo: 95,
-      pwa: 70,
+      pwa: null,
     };
 
-    const delta = calculateDelta(baseline, current);
-
-    expect(delta.pwa).toBe(20);
-  });
-});
-
-describe('worstRegression', () => {
-  it('returns most negative value', () => {
-    const delta = {
-      performance: -5,
-      accessibility: 10,
-      bestPractices: -15,
-      seo: 0,
-    };
-
-    expect(worstRegression(delta)).toBe(-15);
-  });
-
-  it('returns positive when no regression', () => {
-    const delta = {
-      performance: 5,
-      accessibility: 10,
-      bestPractices: 15,
-      seo: 0,
-    };
-
-    expect(worstRegression(delta)).toBe(0);
-  });
-});
-
-describe('hasRegression', () => {
-  it('returns true when any category regressed', () => {
-    const delta = {
-      performance: 10,
-      accessibility: -1,
-      bestPractices: 5,
-      seo: 0,
-    };
-
-    expect(hasRegression(delta)).toBe(true);
-  });
-
-  it('returns false when no regression', () => {
-    const delta = {
-      performance: 10,
-      accessibility: 0,
-      bestPractices: 5,
-      seo: 0,
-    };
-
-    expect(hasRegression(delta)).toBe(false);
-  });
-});
-
-describe('getRegressedCategories', () => {
-  it('returns categories with negative delta', () => {
-    const delta = {
-      performance: -5,
-      accessibility: 10,
-      bestPractices: -10,
-      seo: 0,
-    };
-
-    expect(getRegressedCategories(delta)).toEqual(['performance', 'bestPractices']);
-  });
-});
-
-describe('getImprovedCategories', () => {
-  it('returns categories with positive delta', () => {
-    const delta = {
-      performance: 5,
-      accessibility: 10,
-      bestPractices: 0,
-      seo: -5,
-    };
-
-    expect(getImprovedCategories(delta)).toEqual(['performance', 'accessibility']);
-  });
-});
-
-describe('averageScore', () => {
-  it('calculates average of all categories', () => {
-    const scores: LighthouseScores = {
-      performance: 80,
-      accessibility: 90,
-      bestPractices: 70,
-      seo: 60,
-    };
-
-    expect(averageScore(scores)).toBe(75);
-  });
-
-  it('includes PWA when present', () => {
-    const scores: LighthouseScores = {
-      performance: 100,
-      accessibility: 100,
-      bestPractices: 100,
-      seo: 100,
-      pwa: 50,
-    };
-
-    expect(averageScore(scores)).toBe(90);
+    const result = calculateDeltas(baseline, current, 'base.com', 'current.com');
+    expect(result.deltas).toHaveLength(5);
+    expect(result.baselineUrl).toBe('base.com');
+    expect(result.currentUrl).toBe('current.com');
   });
 });
 
 describe('formatDelta', () => {
-  it('adds + for positive values', () => {
-    expect(formatDelta(10)).toBe('+10');
+  it('formats positive delta with plus', () => {
+    expect(formatDelta(5)).toBe('+5');
   });
 
-  it('keeps - for negative values', () => {
+  it('formats negative delta', () => {
     expect(formatDelta(-5)).toBe('-5');
   });
 
-  it('shows 0 without sign', () => {
+  it('formats zero as 0', () => {
     expect(formatDelta(0)).toBe('0');
+  });
+
+  it('formats null as N/A', () => {
+    expect(formatDelta(null)).toBe('N/A');
   });
 });
 
-describe('roundScores', () => {
-  it('rounds all scores to integers', () => {
-    const scores: LighthouseScores = {
-      performance: 80.4,
-      accessibility: 90.6,
-      bestPractices: 75.5,
-      seo: 85.1,
-    };
+describe('getSummary', () => {
+  it('counts improved, regressed, unchanged', () => {
+    const deltas = [
+      { category: 'performance' as const, baseline: 80, current: 90, delta: 10, direction: 'improved' as const },
+      { category: 'accessibility' as const, baseline: 90, current: 85, delta: -5, direction: 'regressed' as const },
+      { category: 'seo' as const, baseline: 90, current: 90, delta: 0, direction: 'unchanged' as const },
+    ];
 
-    const rounded = roundScores(scores);
+    const summary = getSummary(deltas);
+    expect(summary.improved).toBe(1);
+    expect(summary.regressed).toBe(1);
+    expect(summary.unchanged).toBe(1);
+  });
 
-    expect(rounded.performance).toBe(80);
-    expect(rounded.accessibility).toBe(91);
-    expect(rounded.bestPractices).toBe(76);
-    expect(rounded.seo).toBe(85);
+  it('calculates average delta', () => {
+    const deltas = [
+      { category: 'performance' as const, baseline: 80, current: 90, delta: 10, direction: 'improved' as const },
+      { category: 'accessibility' as const, baseline: 90, current: 85, delta: -5, direction: 'regressed' as const },
+    ];
+
+    const summary = getSummary(deltas);
+    expect(summary.avgDelta).toBe(3); // (10 + -5) / 2 rounded
+  });
+
+  it('returns null avgDelta when all deltas null', () => {
+    const deltas = [
+      { category: 'performance' as const, baseline: null, current: 90, delta: null, direction: 'unchanged' as const },
+    ];
+
+    const summary = getSummary(deltas);
+    expect(summary.avgDelta).toBe(null);
   });
 });

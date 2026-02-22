@@ -1,118 +1,105 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
-import { 
-  loadConfig, 
-  loadConfigFile,
-  findConfigFile,
-  mergeConfig,
-  mergeCliOptions,
+import {
+  CONFIG_FILES,
   DEFAULT_CONFIG,
+  findConfigFile,
+  loadConfigFile,
+  loadConfig,
+  mergeConfig,
+  mergeCliThresholds,
+  mergeCliMaxRegression,
 } from './loader.js';
 
-describe('config loader', () => {
-  let testDir: string;
+const testDir = join(process.cwd(), '.test-config');
 
-  beforeEach(() => {
-    testDir = join(tmpdir(), `lighthouse-diff-test-${Date.now()}`);
-    mkdirSync(testDir, { recursive: true });
+beforeEach(() => {
+  mkdirSync(testDir, { recursive: true });
+});
+
+afterEach(() => {
+  rmSync(testDir, { recursive: true, force: true });
+});
+
+describe('findConfigFile', () => {
+  it('finds lighthouse-diff.json', () => {
+    writeFileSync(join(testDir, 'lighthouse-diff.json'), '{}');
+    const found = findConfigFile(testDir);
+    expect(found).toContain('lighthouse-diff.json');
   });
 
-  afterEach(() => {
-    rmSync(testDir, { recursive: true, force: true });
+  it('returns null when no config', () => {
+    const found = findConfigFile(testDir);
+    expect(found).toBe(null);
+  });
+});
+
+describe('loadConfigFile', () => {
+  it('parses JSON config', () => {
+    const configPath = join(testDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({ thresholds: { performance: 80 } }));
+    const config = loadConfigFile(configPath);
+    expect(config.thresholds?.performance).toBe(80);
   });
 
-  describe('loadConfig', () => {
-    it('returns defaults when no config file', () => {
-      const config = loadConfig(undefined, testDir);
-      
-      expect(config.output).toBe('terminal');
-      expect(config.runner?.runs).toBe(1);
-      expect(config.thresholds?.absoluteMin).toBe(50);
-    });
+  it('throws on invalid JSON', () => {
+    const configPath = join(testDir, 'bad.json');
+    writeFileSync(configPath, 'not json');
+    expect(() => loadConfigFile(configPath)).toThrow();
+  });
+});
 
-    it('loads valid config file', () => {
-      const configPath = join(testDir, 'lighthouse-diff.json');
-      writeFileSync(configPath, JSON.stringify({
-        output: 'json',
-        runner: { runs: 3 },
-      }));
-      
-      const config = loadConfig(configPath);
-      
-      expect(config.output).toBe('json');
-      expect(config.runner?.runs).toBe(3);
-    });
-
-    it('throws on invalid JSON', () => {
-      const configPath = join(testDir, 'lighthouse-diff.json');
-      writeFileSync(configPath, 'not valid json');
-      
-      expect(() => loadConfig(configPath)).toThrow(configPath);
-    });
-
-    it('throws when explicit path not found', () => {
-      const configPath = join(testDir, 'nonexistent.json');
-      
-      expect(() => loadConfig(configPath)).toThrow('Config file not found');
-    });
-
-    it('fills partial config with defaults', () => {
-      const configPath = join(testDir, 'lighthouse-diff.json');
-      writeFileSync(configPath, JSON.stringify({
-        output: 'markdown',
-      }));
-      
-      const config = loadConfig(configPath);
-      
-      expect(config.output).toBe('markdown');
-      // Defaults still present
-      expect(config.runner?.runs).toBe(1);
-      expect(config.thresholds?.absoluteMin).toBe(50);
-    });
+describe('loadConfig', () => {
+  it('returns defaults when no config', () => {
+    const config = loadConfig(undefined, testDir);
+    expect(config.thresholds).toEqual({});
+    expect(config.maxRegression).toEqual({});
   });
 
-  describe('findConfigFile', () => {
-    it('finds config in current directory', () => {
-      const configPath = join(testDir, 'lighthouse-diff.json');
-      writeFileSync(configPath, '{}');
-      
-      const found = findConfigFile(testDir);
-      
-      expect(found).toBe(configPath);
-    });
-
-    it('returns null when no config found', () => {
-      const found = findConfigFile(testDir);
-      
-      expect(found).toBeNull();
-    });
+  it('loads explicit config path', () => {
+    const configPath = join(testDir, 'my-config.json');
+    writeFileSync(configPath, JSON.stringify({ thresholds: { performance: 90 } }));
+    const config = loadConfig(configPath);
+    expect(config.thresholds.performance).toBe(90);
   });
 
-  describe('mergeCliOptions', () => {
-    it('overrides format from CLI', () => {
-      const config = mergeCliOptions(DEFAULT_CONFIG, { format: 'json' });
-      
-      expect(config.output).toBe('json');
-    });
+  it('throws when explicit path not found', () => {
+    expect(() => loadConfig('/nonexistent/path.json')).toThrow();
+  });
+});
 
-    it('overrides runs from CLI', () => {
-      const config = mergeCliOptions(DEFAULT_CONFIG, { runs: 5 });
-      
-      expect(config.runner?.runs).toBe(5);
-    });
+describe('mergeConfig', () => {
+  it('merges with defaults', () => {
+    const merged = mergeConfig(DEFAULT_CONFIG, { thresholds: { performance: 80 } });
+    expect(merged.thresholds.performance).toBe(80);
+    expect(merged.lighthouseConfig?.formFactor).toBe('desktop');
+  });
+});
 
-    it('overrides device from CLI', () => {
-      const config = mergeCliOptions(DEFAULT_CONFIG, { device: 'desktop' });
-      
-      expect(config.runner?.device).toBe('desktop');
+describe('mergeCliThresholds', () => {
+  it('overrides from CLI options', () => {
+    const result = mergeCliThresholds(DEFAULT_CONFIG, {
+      thresholdPerformance: 90,
+      thresholdAccessibility: 85,
     });
+    expect(result.performance).toBe(90);
+    expect(result.accessibility).toBe(85);
+  });
 
-    it('overrides threshold from CLI', () => {
-      const config = mergeCliOptions(DEFAULT_CONFIG, { threshold: 70 });
-      
-      expect(config.thresholds?.absoluteMin).toBe(70);
+  it('preserves unset values', () => {
+    const config = { ...DEFAULT_CONFIG, thresholds: { performance: 80 } };
+    const result = mergeCliThresholds(config, { thresholdAccessibility: 90 });
+    expect(result.performance).toBe(80);
+    expect(result.accessibility).toBe(90);
+  });
+});
+
+describe('mergeCliMaxRegression', () => {
+  it('overrides from CLI options', () => {
+    const result = mergeCliMaxRegression(DEFAULT_CONFIG, {
+      maxRegressionPerformance: 5,
     });
+    expect(result.performance).toBe(5);
   });
 });

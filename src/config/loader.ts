@@ -1,30 +1,26 @@
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
-import type { Config, Thresholds, RunnerOptions, CLIOptions } from '../types.js';
+import type { Config, ThresholdConfig, MaxRegressionConfig } from '../types.js';
 
 /**
  * Config file names to search for (in order)
  */
 export const CONFIG_FILES = [
   'lighthouse-diff.json',
-  'lighthouse-diff.config.json',
-  '.lighthouse-diff.json',
+  '.lighthouse-diffrc',
+  '.lighthouse-diffrc.json',
 ];
 
 /**
  * Default configuration
  */
 export const DEFAULT_CONFIG: Config = {
-  thresholds: {
-    maxRegression: 5,
-    absoluteMin: 50,
+  thresholds: {},
+  maxRegression: {},
+  lighthouseConfig: {
+    formFactor: 'desktop',
+    throttling: false,
   },
-  runner: {
-    runs: 1,
-    device: 'mobile',
-    timeout: 60000,
-  },
-  output: 'terminal',
 };
 
 /**
@@ -80,9 +76,12 @@ function deepMerge<T extends object>(target: T, source: Partial<T>): T {
         typeof targetValue === 'object' &&
         targetValue !== null
       ) {
-        (result as any)[key] = deepMerge(targetValue as object, sourceValue as object);
+        (result as Record<string, unknown>)[key] = deepMerge(
+          targetValue as object, 
+          sourceValue as object
+        );
       } else {
-        (result as any)[key] = sourceValue;
+        (result as Record<string, unknown>)[key] = sourceValue;
       }
     }
   }
@@ -122,29 +121,43 @@ export function loadConfig(path?: string, cwd?: string): Config {
 }
 
 /**
- * Apply CLI options to config
+ * Apply CLI threshold options to config
  */
-export function mergeCliOptions(config: Config, options: Partial<CLIOptions>): Config {
-  const result = { ...config };
-  
-  if (options.format) {
-    result.output = options.format;
+export function mergeCliThresholds(
+  config: Config,
+  options: {
+    thresholdPerformance?: number;
+    thresholdAccessibility?: number;
+    thresholdBestPractices?: number;
+    thresholdSeo?: number;
   }
-  
-  if (options.device) {
-    result.runner = { ...result.runner, device: options.device };
+): ThresholdConfig {
+  return {
+    ...config.thresholds,
+    ...(options.thresholdPerformance !== undefined && { performance: options.thresholdPerformance }),
+    ...(options.thresholdAccessibility !== undefined && { accessibility: options.thresholdAccessibility }),
+    ...(options.thresholdBestPractices !== undefined && { 'best-practices': options.thresholdBestPractices }),
+    ...(options.thresholdSeo !== undefined && { seo: options.thresholdSeo }),
+  };
+}
+
+/**
+ * Apply CLI max regression options to config
+ */
+export function mergeCliMaxRegression(
+  config: Config,
+  options: {
+    maxRegressionPerformance?: number;
+    maxRegressionAccessibility?: number;
+    maxRegressionBestPractices?: number;
+    maxRegressionSeo?: number;
   }
-  
-  if (options.runs !== undefined) {
-    result.runner = { ...result.runner, runs: options.runs };
-  }
-  
-  if (options.threshold !== undefined) {
-    result.thresholds = { 
-      ...result.thresholds, 
-      absoluteMin: options.threshold,
-    };
-  }
-  
-  return result;
+): MaxRegressionConfig {
+  return {
+    ...config.maxRegression,
+    ...(options.maxRegressionPerformance !== undefined && { performance: options.maxRegressionPerformance }),
+    ...(options.maxRegressionAccessibility !== undefined && { accessibility: options.maxRegressionAccessibility }),
+    ...(options.maxRegressionBestPractices !== undefined && { 'best-practices': options.maxRegressionBestPractices }),
+    ...(options.maxRegressionSeo !== undefined && { seo: options.maxRegressionSeo }),
+  };
 }

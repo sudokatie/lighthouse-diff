@@ -1,134 +1,84 @@
 import lighthouse from 'lighthouse';
 import puppeteer, { Browser } from 'puppeteer';
-import type { LighthouseScores, RunnerOptions } from '../types.js';
-import { parseResult, averageResults, type LighthouseResult } from './parser.js';
+import type { CategoryScores, RunnerOptions } from '../types.js';
+import { parseResult } from './parser.js';
 
 let browser: Browser | null = null;
 
 /**
- * Get or create shared browser instance
+ * Get or create browser instance
  */
 async function getBrowser(): Promise<Browser> {
-  if (browser && browser.connected) {
-    return browser;
+  if (!browser) {
+    browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
+    });
   }
-
-  browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-    ],
-  });
-
   return browser;
 }
 
 /**
- * Close the shared browser instance
+ * Run a Lighthouse audit
  */
-export async function closeBrowser(): Promise<void> {
-  if (browser) {
-    await browser.close();
-    browser = null;
-  }
-}
+export async function runAudit(
+  url: string,
+  options: RunnerOptions = {}
+): Promise<CategoryScores> {
+  const browserInstance = await getBrowser();
+  const port = new URL(browserInstance.wsEndpoint()).port;
 
-/**
- * Get Lighthouse config based on options
- */
-function getLighthouseConfig(options: RunnerOptions): object {
-  const formFactor = options.device === 'desktop' ? 'desktop' : 'mobile';
-  
-  return {
+  const config = {
     extends: 'lighthouse:default',
     settings: {
-      formFactor,
-      screenEmulation: formFactor === 'desktop' 
-        ? { mobile: false, width: 1350, height: 940, deviceScaleFactor: 1 }
-        : { mobile: true, width: 375, height: 667, deviceScaleFactor: 2 },
-      throttling: {
-        rttMs: 40,
-        throughputKbps: 10240,
+      formFactor: options.formFactor ?? 'desktop',
+      throttling: options.throttling === true ? undefined : {
+        rttMs: 0,
+        throughputKbps: 0,
         cpuSlowdownMultiplier: 1,
+        requestLatencyMs: 0,
+        downloadThroughputKbps: 0,
+        uploadThroughputKbps: 0,
       },
-      onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
+      screenEmulation: {
+        mobile: options.formFactor === 'mobile',
+        width: options.formFactor === 'mobile' ? 375 : 1350,
+        height: options.formFactor === 'mobile' ? 667 : 940,
+        deviceScaleFactor: options.formFactor === 'mobile' ? 2 : 1,
+        disabled: false,
+      },
     },
   };
-}
-
-/**
- * Run a single Lighthouse audit
- */
-async function runSingleAudit(url: string, options: RunnerOptions): Promise<LighthouseScores> {
-  const browserInstance = await getBrowser();
-  const page = await browserInstance.newPage();
 
   try {
-    // Get the WebSocket endpoint for Lighthouse
-    const wsEndpoint = browserInstance.wsEndpoint();
-    const port = parseInt(new URL(wsEndpoint).port, 10);
-
-    const config = getLighthouseConfig(options);
-
     const result = await lighthouse(url, {
-      port,
+      port: parseInt(port, 10),
       output: 'json',
       logLevel: 'error',
     }, config);
 
     if (!result || !result.lhr) {
-      throw new Error(`Lighthouse audit failed for ${url}: No result returned`);
+      throw new Error(`Lighthouse returned no result for ${url}`);
     }
 
-    return parseResult(result.lhr as unknown as LighthouseResult);
+    const parsed = parseResult(result.lhr);
+    return parsed.scores;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Lighthouse audit failed for ${url}: ${message}`);
-  } finally {
-    await page.close();
+    throw new Error(`Failed to audit ${url}: ${message}`);
   }
 }
 
 /**
- * Run Lighthouse audit with optional averaging
+ * Close the browser
  */
-export async function runAudit(url: string, options: RunnerOptions = {}): Promise<LighthouseScores> {
-  const runs = options.runs ?? 1;
-
-  if (runs < 1) {
-    throw new Error('runs must be at least 1');
-  }
-
-  if (runs === 1) {
-    return runSingleAudit(url, options);
-  }
-
-  // Run multiple times and average
-  const results: LighthouseScores[] = [];
-  for (let i = 0; i < runs; i++) {
-    const result = await runSingleAudit(url, options);
-    results.push(result);
-  }
-
-  return averageResults(results);
-}
-
-/**
- * Run audits for baseline and current URLs
- */
-export async function compareUrls(
-  baselineUrl: string,
-  currentUrl: string,
-  options: RunnerOptions = {}
-): Promise<{ baseline: LighthouseScores; current: LighthouseScores }> {
-  try {
-    const baseline = await runAudit(baselineUrl, options);
-    const current = await runAudit(currentUrl, options);
-    return { baseline, current };
-  } finally {
-    // Don't close browser here - let caller manage lifecycle
+export async function closeBrowser(): Promise<void> {
+  if (browser) {
+    await browser.close();
+    browser = null;
   }
 }
