@@ -84,6 +84,15 @@ export function parseComparison(json: string): ComparisonResult {
       timestamp: new Date(data.current.timestamp),
     },
     delta: data.delta,
-    validation: data.validation,
+    validation: {
+      passed: data.validation.passed,
+      failures: data.validation.failures.map(f => ({
+        category: f.category as keyof LighthouseScores,
+        type: f.type as 'regression' | 'minScore' | 'absoluteMin',
+        message: f.message,
+        actual: f.actual,
+        threshold: f.threshold,
+      })),
+    },
   };
 }
