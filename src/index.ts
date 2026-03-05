@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import { compare } from './commands/compare.js';
 import { gitCompare } from './commands/git.js';
+import { history } from './commands/history.js';
 import { loadConfig, mergeCliThresholds, mergeCliMaxRegression } from './config/loader.js';
 import type { OutputFormat } from './types.js';
 
@@ -86,6 +87,37 @@ program
         maxRegression: config.maxRegression,
         format: options.format as OutputFormat,
         ci: options.ci,
+      });
+
+      console.log(result.output);
+      process.exit(result.exitCode);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// History command
+program
+  .command('history [url]')
+  .description('View historical Lighthouse runs')
+  .option('-n, --limit <n>', 'Number of results', parseInt, 20)
+  .option('--since <date>', 'Filter to runs since date (ISO or relative: 7d, 2w, 1m)')
+  .option('--branch <name>', 'Filter by git branch')
+  .option('-f, --format <format>', 'Output format: terminal, json', 'terminal')
+  .option('--trend', 'Show trend visualization')
+  .option('--clear', 'Clear history')
+  .option('--older-than <days>', 'With --clear: only delete records older than N days', parseInt)
+  .action(async (url, options) => {
+    try {
+      const result = await history(url, {
+        limit: options.limit,
+        since: options.since,
+        branch: options.branch,
+        format: options.format,
+        trend: options.trend,
+        clear: options.clear,
+        olderThan: options.olderThan,
       });
 
       console.log(result.output);

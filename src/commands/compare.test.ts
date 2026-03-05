@@ -13,6 +13,12 @@ vi.mock('../lighthouse/runner.js', () => ({
   closeBrowser: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock the history database
+vi.mock('../history/db.js', () => ({
+  recordRun: vi.fn().mockReturnValue(1),
+  cleanupOldRecords: vi.fn().mockReturnValue(0),
+}));
+
 describe('compare', () => {
   beforeEach(() => {
     vi.clearAllMocks();

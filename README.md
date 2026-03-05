@@ -12,6 +12,8 @@ Because "it feels slower" isn't a metric. Run Lighthouse on your baseline and pr
 - Compare between git refs (branches, tags, commits)
 - Per-category thresholds (performance, accessibility, best-practices, seo)
 - Per-category max regression limits
+- Historical tracking with SQLite storage
+- Trend visualization (ASCII charts)
 - Multiple output formats (terminal, JSON, Markdown, GitHub annotations)
 - GitHub Action for CI integration
 
@@ -35,6 +37,47 @@ lighthouse-diff compare prod.com staging.com --threshold-performance 80 --ci
 ```
 
 ## CLI Reference
+
+### history command
+
+```
+lighthouse-diff history [url] [options]
+```
+
+View historical Lighthouse runs and track score trends over time.
+
+**Arguments:**
+- `url` - Filter by URL (partial match, optional)
+
+**Options:**
+- `-n, --limit <n>` - Number of results (default: 20)
+- `--since <date>` - Filter runs since date (ISO 8601 or relative: 7d, 2w, 1m)
+- `--branch <name>` - Filter by git branch
+- `-f, --format <format>` - Output format: terminal, json (default: terminal)
+- `--trend` - Show ASCII trend visualization
+- `--clear` - Clear all history
+- `--older-than <days>` - With --clear: only delete records older than N days
+
+**Examples:**
+
+```bash
+# View recent runs
+lighthouse-diff history
+
+# View runs for a specific URL
+lighthouse-diff history example.com
+
+# View runs from last week with trend chart
+lighthouse-diff history example.com --since 7d --trend
+
+# Export as JSON
+lighthouse-diff history --format json > history.json
+
+# Clear old history (90+ days)
+lighthouse-diff history --clear --older-than 90
+```
+
+Historical data is stored in `~/.lighthouse-diff/history.db` and automatically recorded during compare/git commands. Default retention is 90 days.
 
 ### compare command
 

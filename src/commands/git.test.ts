@@ -17,6 +17,12 @@ vi.mock('../git/checkout.js', () => ({
   captureState: vi.fn().mockReturnValue({ branch: 'main', commit: 'abc123', stashed: false }),
   restoreState: vi.fn(),
   checkout: vi.fn(),
+  getCurrentCommit: vi.fn().mockReturnValue('abc123'),
+}));
+
+vi.mock('../history/db.js', () => ({
+  recordRun: vi.fn().mockReturnValue(1),
+  cleanupOldRecords: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock('../git/server.js', () => ({

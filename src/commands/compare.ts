@@ -13,6 +13,7 @@ import { formatTerminal } from '../output/terminal.js';
 import { formatJson } from '../output/json.js';
 import { formatMarkdown } from '../output/markdown.js';
 import { formatGitHub } from '../output/github.js';
+import { recordRun, cleanupOldRecords } from '../history/db.js';
 
 export interface CompareOptions {
   thresholds?: ThresholdConfig;
@@ -45,6 +46,13 @@ export async function compare(
 
     console.error(`Auditing current: ${currentUrl}`);
     const current = await runAudit(currentUrl);
+
+    // Record runs to history
+    recordRun(baselineUrl, baseline);
+    recordRun(currentUrl, current);
+
+    // Lazy cleanup of old records
+    cleanupOldRecords();
 
     // Calculate deltas
     const deltas = calculateDeltas(baseline, current, baselineUrl, currentUrl);

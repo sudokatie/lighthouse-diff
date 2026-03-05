@@ -9,12 +9,13 @@ import type {
 import { runAudit, closeBrowser } from '../lighthouse/runner.js';
 import { calculateDeltas } from '../diff/calculator.js';
 import { validateAll } from '../diff/threshold.js';
-import { captureState, restoreState, checkout } from '../git/checkout.js';
+import { captureState, restoreState, checkout, getCurrentCommit } from '../git/checkout.js';
 import { startServer } from '../git/server.js';
 import { formatTerminal } from '../output/terminal.js';
 import { formatJson } from '../output/json.js';
 import { formatMarkdown } from '../output/markdown.js';
 import { formatGitHub } from '../output/github.js';
+import { recordRun, cleanupOldRecords } from '../history/db.js';
 
 export interface GitCompareOptions {
   base: string;
@@ -50,6 +51,7 @@ export async function gitCompare(options: GitCompareOptions): Promise<GitCompare
     // Checkout base and audit
     console.error(`Checking out ${options.base}...`);
     checkout(options.base);
+    const baseCommit = getCurrentCommit();
     
     const baseServer = await startServer({ 
       command: serverCmd,
@@ -57,13 +59,16 @@ export async function gitCompare(options: GitCompareOptions): Promise<GitCompare
     });
     
     let baseline: CategoryScores;
+    const baseUrl = `http://localhost:${serverPort}${urlPath}`;
     try {
-      const baseUrl = `http://localhost:${serverPort}${urlPath}`;
       console.error(`Auditing baseline: ${baseUrl}`);
       baseline = await runAudit(baseUrl);
     } finally {
       await baseServer.stop();
     }
+    
+    // Record baseline run
+    recordRun(baseUrl, baseline, baseCommit, options.base);
 
     // Checkout head (or restore) and audit
     if (options.head) {
@@ -72,6 +77,8 @@ export async function gitCompare(options: GitCompareOptions): Promise<GitCompare
     } else {
       restoreState(state);
     }
+    const currentCommit = getCurrentCommit();
+    const currentBranch = options.head ?? state.branch;
 
     const currentServer = await startServer({ 
       command: serverCmd,
@@ -79,13 +86,19 @@ export async function gitCompare(options: GitCompareOptions): Promise<GitCompare
     });
     
     let current: CategoryScores;
+    const currentUrl = `http://localhost:${serverPort}${urlPath}`;
     try {
-      const currentUrl = `http://localhost:${serverPort}${urlPath}`;
       console.error(`Auditing current: ${currentUrl}`);
       current = await runAudit(currentUrl);
     } finally {
       await currentServer.stop();
     }
+    
+    // Record current run
+    recordRun(currentUrl, current, currentCommit, currentBranch);
+    
+    // Lazy cleanup of old records
+    cleanupOldRecords();
 
     // Calculate deltas
     const baseLabel = options.base;
