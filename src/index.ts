@@ -5,6 +5,7 @@ import { compare } from './commands/compare.js';
 import { gitCompare } from './commands/git.js';
 import { history } from './commands/history.js';
 import { loadConfig, mergeCliThresholds, mergeCliMaxRegression } from './config/loader.js';
+import { loadBudget } from './budget/loader.js';
 import type { OutputFormat } from './types.js';
 
 const program = new Command();
@@ -21,6 +22,7 @@ program
   .option('-c, --config <path>', 'Path to config file')
   .option('-f, --format <format>', 'Output format: terminal, json, markdown, github', 'terminal')
   .option('--ci', 'CI mode: exit 1 on threshold failure')
+  .option('-b, --budget <path>', 'Path to budget file (budget.json)')
   .option('--threshold-performance <n>', 'Minimum performance score', parseInt)
   .option('--threshold-accessibility <n>', 'Minimum accessibility score', parseInt)
   .option('--threshold-best-practices <n>', 'Minimum best practices score', parseInt)
@@ -36,11 +38,15 @@ program
         thresholdSeo: options.thresholdSeo,
       });
 
+      // Load budgets from file or auto-discover
+      const budgets = await loadBudget(options.budget);
+
       const result = await compare(baselineUrl, currentUrl, {
         thresholds,
         maxRegression: config.maxRegression,
         format: options.format as OutputFormat,
         ci: options.ci,
+        budgets: budgets ?? undefined,
       });
 
       console.log(result.output);
@@ -62,6 +68,7 @@ program
   .option('-c, --config <path>', 'Path to config file')
   .option('-f, --format <format>', 'Output format: terminal, json, markdown, github', 'terminal')
   .option('--ci', 'CI mode: exit 1 on threshold failure')
+  .option('-b, --budget <path>', 'Path to budget file (budget.json)')
   .option('--threshold-performance <n>', 'Minimum performance score', parseInt)
   .option('--threshold-accessibility <n>', 'Minimum accessibility score', parseInt)
   .option('--threshold-best-practices <n>', 'Minimum best practices score', parseInt)
@@ -77,6 +84,9 @@ program
         thresholdSeo: options.thresholdSeo,
       });
 
+      // Load budgets from file or auto-discover
+      const budgets = await loadBudget(options.budget);
+
       const result = await gitCompare({
         base: baseRef,
         head: options.head,
@@ -87,6 +97,7 @@ program
         maxRegression: config.maxRegression,
         format: options.format as OutputFormat,
         ci: options.ci,
+        budgets: budgets ?? undefined,
       });
 
       console.log(result.output);

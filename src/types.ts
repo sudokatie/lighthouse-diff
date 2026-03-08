@@ -129,3 +129,61 @@ export interface GitOptions {
   port?: number;
   path?: string;
 }
+
+// Budget types (Lighthouse performance budgets)
+export type BudgetTimingMetric =
+  | "first-contentful-paint"
+  | "largest-contentful-paint"
+  | "interactive"
+  | "speed-index"
+  | "total-blocking-time"
+  | "max-potential-fid"
+  | "cumulative-layout-shift";
+
+export type BudgetResourceType =
+  | "document"
+  | "script"
+  | "stylesheet"
+  | "image"
+  | "media"
+  | "font"
+  | "other"
+  | "third-party"
+  | "total";
+
+export interface BudgetTiming {
+  metric: BudgetTimingMetric;
+  budget: number; // milliseconds (or unitless for CLS)
+}
+
+export interface BudgetResourceSize {
+  resourceType: BudgetResourceType;
+  budget: number; // kilobytes
+}
+
+export interface BudgetResourceCount {
+  resourceType: BudgetResourceType;
+  budget: number; // count
+}
+
+export interface Budget {
+  path?: string;
+  timings?: BudgetTiming[];
+  resourceSizes?: BudgetResourceSize[];
+  resourceCounts?: BudgetResourceCount[];
+}
+
+// Budget violation result
+export interface BudgetViolation {
+  budgetType: "timing" | "resourceSize" | "resourceCount";
+  label: string;
+  budget: number;
+  actual: number;
+  overBy: number;
+  overByPercent: number;
+}
+
+export interface BudgetResult {
+  passed: boolean;
+  violations: BudgetViolation[];
+}

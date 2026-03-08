@@ -5,6 +5,7 @@ import type {
   ThresholdConfig,
   MaxRegressionConfig,
   OutputFormat,
+  Budget,
 } from '../types.js';
 import { runAudit, closeBrowser } from '../lighthouse/runner.js';
 import { calculateDeltas } from '../diff/calculator.js';
@@ -27,6 +28,7 @@ export interface GitCompareOptions {
   maxRegression?: MaxRegressionConfig;
   format?: OutputFormat;
   ci?: boolean;
+  budgets?: Budget[];  // TODO: implement budget checking in git command
 }
 
 export interface GitCompareResult {

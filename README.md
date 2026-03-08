@@ -12,10 +12,65 @@ Because "it feels slower" isn't a metric. Run Lighthouse on your baseline and pr
 - Compare between git refs (branches, tags, commits)
 - Per-category thresholds (performance, accessibility, best-practices, seo)
 - Per-category max regression limits
+- Performance budgets (LCP, FCP, resource sizes, request counts)
 - Historical tracking with SQLite storage
 - Trend visualization (ASCII charts)
 - Multiple output formats (terminal, JSON, Markdown, GitHub annotations)
 - GitHub Action for CI integration
+
+## Performance Budgets
+
+Beyond category scores, you can set specific metric budgets using a `budget.json` file:
+
+```json
+[{
+  "path": "/*",
+  "timings": [
+    { "metric": "first-contentful-paint", "budget": 1500 },
+    { "metric": "largest-contentful-paint", "budget": 2500 },
+    { "metric": "cumulative-layout-shift", "budget": 0.1 }
+  ],
+  "resourceSizes": [
+    { "resourceType": "script", "budget": 300 },
+    { "resourceType": "total", "budget": 1000 }
+  ],
+  "resourceCounts": [
+    { "resourceType": "third-party", "budget": 10 },
+    { "resourceType": "total", "budget": 50 }
+  ]
+}]
+```
+
+**Usage:**
+
+```bash
+# Auto-discover budget.json in current directory
+lighthouse-diff compare prod.com staging.com
+
+# Explicit budget file
+lighthouse-diff compare prod.com staging.com --budget ./budget.json
+
+# With CI mode (exit 1 on budget violation)
+lighthouse-diff compare prod.com staging.com --ci
+```
+
+**Available metrics:**
+
+Timings (in milliseconds, except CLS which is unitless):
+- `first-contentful-paint`
+- `largest-contentful-paint`
+- `interactive` (Time to Interactive)
+- `speed-index`
+- `total-blocking-time`
+- `max-potential-fid`
+- `cumulative-layout-shift`
+
+Resource types (sizes in KB, counts as integers):
+- `document`, `script`, `stylesheet`, `image`, `media`, `font`, `other`
+- `third-party` (external resources)
+- `total` (all resources)
+
+Budget files are searched in order: `budget.json`, `.lighthouse-budget.json`, `lighthouse-budget.json`
 
 ## Installation
 
@@ -92,7 +147,8 @@ lighthouse-diff compare <baseline-url> <current-url> [options]
 **Options:**
 - `-c, --config <path>` - Path to config file
 - `-f, --format <format>` - Output format: terminal, json, markdown, github (default: terminal)
-- `--ci` - CI mode: exit 1 on threshold failure
+- `-b, --budget <path>` - Path to budget file (auto-discovers budget.json)
+- `--ci` - CI mode: exit 1 on threshold or budget failure
 - `--threshold-performance <n>` - Minimum performance score
 - `--threshold-accessibility <n>` - Minimum accessibility score
 - `--threshold-best-practices <n>` - Minimum best practices score
